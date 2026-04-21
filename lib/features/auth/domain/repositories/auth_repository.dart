@@ -20,6 +20,24 @@ abstract class AuthRepository {
     required String otpCode,
   });
 
+  Future<void> resendPassengerOtp();
+
+  Future<void> forgotPassengerPassword({
+    required String login,
+  });
+
+  Future<String> verifyPassengerResetOtp({
+    required String login,
+    required String otp,
+  });
+
+  Future<void> resetPassengerPassword({
+    required String login,
+    required String resetToken,
+    required String newPassword,
+    required String newPasswordConfirmation,
+  });
+
   Future<AuthSession> refreshPassengerToken();
 
   /// Request OTP for phone number

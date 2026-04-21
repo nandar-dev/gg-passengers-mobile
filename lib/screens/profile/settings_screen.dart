@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/di/service_locator.dart';
+import '../../core/routing/route_names.dart';
+import '../../core/session/app_session_state.dart';
+import '../../features/auth/domain/repositories/auth_repository.dart';
+import '../../shared/widgets/app_message.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -10,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const double _passengerRating = 4.8;
   static const String _pushNotificationsKey = 'settings.push_notifications';
   static const String _tripAlertsKey = 'settings.trip_alerts';
   static const String _biometricLockKey = 'settings.biometric_lock';
@@ -19,8 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _biometricLock = false;
   String _selectedLanguage = 'English';
   String _selectedPayment = 'UPI';
-
-  final List<String> _savedPlaces = <String>['Home', 'Office'];
+  bool _isLoggingOut = false;
 
   @override
   void initState() {
@@ -56,19 +63,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     HapticFeedback.mediumImpact();
   }
 
-  Widget _animatedSection({required Widget child}) {
-    return child;
-  }
-
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    AppMessage.info(context, message);
   }
 
   Future<void> _showSelectionSheet({
@@ -131,128 +127,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _showSavedPlacesSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.place_outlined, color: Color(0xFFFE8C00)),
-                    SizedBox(width: 10),
-                    Text(
-                      'Saved Places',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ..._savedPlaces.map(
-                  (place) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.location_on_outlined),
-                    title: Text(place),
-                    subtitle: Text('Tap to edit $place address'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () {
-                      _hapticTap();
-                      Navigator.of(context).pop();
-                      _showMessage('$place editing screen will be added next');
-                    },
-                  ),
-                ),
-                const Divider(height: 18),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFE8C00),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    _hapticTap();
-                    Navigator.of(context).pop();
-                    _showMessage('Add new place flow will be added next');
-                  },
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add New Place'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _showInfoSheet({
-    required String title,
-    required IconData icon,
-    required String description,
-  }) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(icon, color: const Color(0xFFFE8C00)),
-                    const SizedBox(width: 10),
-                    Text(
-                      title,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  description,
-                  style: const TextStyle(
-                    color: Color(0xFF5F6368),
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFE8C00),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 46),
-                  ),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Got it'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _confirmLogout() async {
+    if (_isLoggingOut) return;
+
     final bool? shouldLogout = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -275,8 +152,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (shouldLogout == true) {
-      _hapticSuccess();
-      _showMessage('Logged out successfully');
+      if (!mounted) return;
+      setState(() => _isLoggingOut = true);
+
+      try {
+        await getIt<AuthRepository>().logout();
+      } finally {
+        if (!mounted) return;
+
+        setState(() => _isLoggingOut = false);
+
+        appSessionState.markForcedLogout();
+        _hapticSuccess();
+        _showMessage('Logged out successfully');
+        context.go(RouteNames.login);
+      }
     }
   }
 
@@ -333,8 +223,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
         children: [
-          _animatedSection(
-            child: Container(
+          Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -344,27 +233,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               children: [
                 const CircleAvatar(
-                  radius: 30,
+                  radius: 24,
                   backgroundColor: Color(0xFFFFE3BF),
                   child: Icon(
                     Icons.person_rounded,
                     color: brand,
-                    size: 34,
+                    size: 28,
                   ),
                 ),
                 const SizedBox(width: 14),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'John Doe',
-                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                       ),
                       SizedBox(height: 3),
                       Text(
                         'john@example.com',
                         style: TextStyle(color: Color(0xFF5F6368)),
+                      ),
+                      SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.star_rounded,
+                            size: 16,
+                            color: Color(0xFFFE8C00),
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            'Passenger rating ${_passengerRating.toStringAsFixed(1)}',
+                            style: TextStyle(
+                              color: Color(0xFF202124),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -375,7 +283,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: IconButton(
-                    onPressed: () {},
+                    onPressed: () => context.push(RouteNames.profileEdit),
                     icon: const Icon(Icons.edit_rounded, color: brand, size: 20),
                     visualDensity: VisualDensity.compact,
                   ),
@@ -383,50 +291,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          ),
           const SizedBox(height: 16),
-          const _SectionLabel('Notifications'),
-          _animatedSection(
-            child: _SettingsCard(
-            child: Column(
-              children: [
-                _ToggleSettingsTile(
-                  icon: Icons.notifications_active_outlined,
-                  title: 'Push Notifications',
-                  subtitle: 'Offers, updates and app alerts',
-                  value: _pushNotifications,
-                  onChanged: (value) {
-                    _hapticTap();
-                    setState(() => _pushNotifications = value);
-                    _saveBoolSetting(_pushNotificationsKey, value);
-                  },
-                ),
-                const Divider(height: 1, color: Color(0xFFE8EAED)),
-                _ToggleSettingsTile(
-                  icon: Icons.alt_route_rounded,
-                  title: 'Trip Alerts',
-                  subtitle: 'Driver arrival and ride status updates',
-                  value: _tripAlerts,
-                  onChanged: (value) {
-                    _hapticTap();
-                    setState(() => _tripAlerts = value);
-                    _saveBoolSetting(_tripAlertsKey, value);
-                  },
-                ),
-              ],
-            ),
-          ),
-          ),
-          const SizedBox(height: 14),
           const _SectionLabel('Preferences'),
-          _animatedSection(
-            child: _SettingsCard(
+          _SettingsCard(
             child: Column(
               children: [
                 _SettingsTile(
                   icon: Icons.language_rounded,
                   title: 'Language',
-                  subtitle: 'Choose your preferred app language',
+                  subtitle: 'Choose app language',
                   valueLabel: _selectedLanguage,
                   onTap: () {
                     _hapticTap();
@@ -442,8 +315,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
                 _SettingsTile(
                   icon: Icons.payments_outlined,
-                  title: 'Payment Preferences',
-                  subtitle: 'Default payment method and receipts',
+                  title: 'Payment Method',
+                  subtitle: 'Default payment preference',
                   valueLabel: _selectedPayment,
                   onTap: () {
                     _hapticTap();
@@ -457,30 +330,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
-                _SettingsTile(
-                  icon: Icons.place_outlined,
-                  title: 'Saved Places',
-                  subtitle: 'Manage Home, Office and favorite spots',
-                  valueLabel: '${_savedPlaces.length} places',
-                  onTap: () {
-                    _hapticTap();
-                    _showSavedPlacesSheet();
-                  },
-                ),
-              ],
-            ),
-          ),
-          ),
-          const SizedBox(height: 14),
-          const _SectionLabel('Privacy & Security'),
-          _animatedSection(
-            child: _SettingsCard(
-            child: Column(
-              children: [
                 _ToggleSettingsTile(
                   icon: Icons.fingerprint_rounded,
                   title: 'Biometric Lock',
-                  subtitle: 'Use Face ID / Fingerprint for app access',
+                  subtitle: 'Use Face ID / Fingerprint',
                   value: _biometricLock,
                   onChanged: (value) {
                     _hapticTap();
@@ -488,43 +341,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveBoolSetting(_biometricLockKey, value);
                   },
                 ),
-                const Divider(height: 1, color: Color(0xFFE8EAED)),
-                _SettingsTile(
-                  icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy Controls',
-                  subtitle: 'Manage permissions and data usage',
-                  onTap: () {
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const _SectionLabel('Notifications'),
+          _SettingsCard(
+            child: Column(
+              children: [
+                _ToggleSettingsTile(
+                  icon: Icons.notifications_active_outlined,
+                  title: 'Push Notifications',
+                  subtitle: 'Offers and app updates',
+                  value: _pushNotifications,
+                  onChanged: (value) {
                     _hapticTap();
-                    _showInfoSheet(
-                      title: 'Privacy Controls',
-                      icon: Icons.privacy_tip_outlined,
-                      description:
-                          'Manage permissions like location, notifications and contacts. Detailed privacy controls will be connected to live APIs in the next step.',
-                    );
+                    setState(() => _pushNotifications = value);
+                    _saveBoolSetting(_pushNotificationsKey, value);
                   },
                 ),
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
-                _SettingsTile(
-                  icon: Icons.security_rounded,
-                  title: 'Security',
-                  subtitle: 'Password, login activity and devices',
-                  onTap: () {
+                _ToggleSettingsTile(
+                  icon: Icons.alt_route_rounded,
+                  title: 'Trip Alerts',
+                  subtitle: 'Ride and driver status updates',
+                  value: _tripAlerts,
+                  onChanged: (value) {
                     _hapticTap();
-                    _showInfoSheet(
-                      title: 'Security',
-                      icon: Icons.security_rounded,
-                      description:
-                          'Review account protection, sign-in activity and trusted devices. Security management actions can be enabled once backend endpoints are ready.',
-                    );
+                    setState(() => _tripAlerts = value);
+                    _saveBoolSetting(_tripAlertsKey, value);
                   },
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          const _SectionLabel('More'),
+          _SettingsCard(
+            child: Column(
+              children: [
+                _SettingsTile(
+                  icon: Icons.local_offer_outlined,
+                  title: 'Promotions',
+                  subtitle: 'Coupons, referral rewards and offers',
+                  onTap: () => context.push(RouteNames.promotions),
+                ),
+                const Divider(height: 1, color: Color(0xFFE8EAED)),
+                _SettingsTile(
+                  icon: Icons.support_agent_rounded,
+                  title: 'Support',
+                  subtitle: 'Get help with rides and account issues',
+                  onTap: () => context.push(RouteNames.support),
+                ),
+                const Divider(height: 1, color: Color(0xFFE8EAED)),
+                _SettingsTile(
+                  icon: Icons.info_outline_rounded,
+                  title: 'About',
+                  subtitle: 'App version, terms and privacy information',
+                  onTap: () => context.push(RouteNames.about),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
-          _animatedSection(
-            child: _SettingsCard(
+          const _SectionLabel('Account'),
+          _SettingsCard(
             accentColor: const Color(0xFFFFF4F4),
             accentBorderColor: const Color(0xFFFFD6D6),
             child: Column(
@@ -534,10 +415,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Logout',
                   subtitle: 'Sign out from this device',
                   destructive: true,
-                  onTap: () {
-                    _hapticWarning();
-                    _confirmLogout();
-                  },
+                  isLoading: _isLoggingOut,
+                  onTap: _isLoggingOut
+                      ? null
+                      : () {
+                          _hapticWarning();
+                          _confirmLogout();
+                        },
                 ),
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
                 _SettingsTile(
@@ -552,7 +436,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-          ),
           ),
         ],
       ),
@@ -657,6 +540,7 @@ class _SettingsTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool destructive;
+  final bool isLoading;
   final String? valueLabel;
   final VoidCallback? onTap;
 
@@ -665,6 +549,7 @@ class _SettingsTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.destructive = false,
+    this.isLoading = false,
     this.valueLabel,
     this.onTap,
   });
@@ -679,6 +564,17 @@ class _SettingsTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.only(right: 10),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
           if (valueLabel != null)
             Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -691,7 +587,7 @@ class _SettingsTile extends StatelessWidget {
                 ),
               ),
             ),
-          Icon(Icons.chevron_right_rounded, color: color),
+          if (!isLoading) Icon(Icons.chevron_right_rounded, color: color),
         ],
       ),
       title: Text(

@@ -20,6 +20,11 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('Edit Profile'),
+            onTap: () => context.push(RouteNames.profileEdit),
+          ),
+          ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
             onTap: () => context.go(RouteNames.settings),

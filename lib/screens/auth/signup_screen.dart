@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/providers/auth_register_notifier.dart';
 import '../../core/routing/route_names.dart';
+import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/primary_text_field.dart';
 
@@ -121,17 +122,13 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
       return;
     }
 
-    if (errorMessage != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(errorMessage)));
+      if (errorMessage != null) {
+        AppMessage.error(context, errorMessage);
       return;
     }
 
     if (user != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Account created successfully')));
+        AppMessage.success(context, 'Account created successfully');
 
       context.go(RouteNames.login);
     }

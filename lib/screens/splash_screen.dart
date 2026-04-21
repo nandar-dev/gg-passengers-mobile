@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/di/service_locator.dart';
+import '../core/network/token_storage.dart';
 import '../core/routing/route_names.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -14,10 +16,23 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 1200), () {
-      if (!mounted) return;
-      context.go(RouteNames.onboarding);
-    });
+    _bootstrapNavigation();
+  }
+
+  Future<void> _bootstrapNavigation() async {
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+
+    final tokenStorage = getIt<TokenStorage>();
+    final token = await tokenStorage.readAccessToken();
+    if (!mounted) return;
+
+    if (token != null && token.isNotEmpty) {
+      context.go(RouteNames.home);
+      return;
+    }
+
+    context.go(RouteNames.onboarding);
   }
 
   @override

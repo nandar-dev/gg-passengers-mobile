@@ -1,16 +1,23 @@
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session_state.dart';
+import '../../screens/auth/forgot_password_screen.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/auth/otp_verification_screen.dart';
+import '../../screens/auth/reset_password_screen.dart';
 import '../../screens/auth/signup_screen.dart';
+import '../../screens/auth/verify_reset_otp_screen.dart';
 import '../../screens/booking/ride_category_screen.dart';
 import '../../screens/booking/search_location_screen.dart';
 import '../../screens/home/home_screen.dart';
 import '../../screens/onboarding/onboarding_screen.dart';
 import '../../screens/payments/payments_screen.dart';
+import '../../screens/profile/about_screen.dart';
+import '../../screens/profile/profile_edit_screen.dart';
 import '../../screens/profile/profile_screen.dart';
+import '../../screens/profile/promotions_screen.dart';
 import '../../screens/profile/settings_screen.dart';
+import '../../screens/profile/support_screen.dart';
 import '../../screens/ride/ride_history_screen.dart';
 import '../../screens/ride/ride_review_screen.dart';
 import '../../screens/ride/ride_tracking_screen.dart';
@@ -29,6 +36,9 @@ final goRouter = GoRouter(
     final location = state.matchedLocation;
     final isAuthRoute =
         location == RouteNames.login ||
+        location == RouteNames.forgotPassword ||
+        location == RouteNames.verifyResetOtp ||
+        location == RouteNames.resetPassword ||
         location == RouteNames.signup ||
         location == RouteNames.otpVerification;
 
@@ -63,6 +73,61 @@ final goRouter = GoRouter(
       },
     ),
     GoRoute(
+      path: RouteNames.forgotPassword,
+      name: 'forgotPassword',
+      builder: (context, state) {
+        String? login;
+
+        final extra = state.extra;
+        if (extra is String && extra.trim().isNotEmpty) {
+          login = extra;
+        }
+
+        return ForgotPasswordScreen(initialLogin: login);
+      },
+    ),
+    GoRoute(
+      path: RouteNames.verifyResetOtp,
+      name: 'verifyResetOtp',
+      builder: (context, state) {
+        String? login;
+
+        final extra = state.extra;
+        if (extra is String && extra.trim().isNotEmpty) {
+          login = extra;
+        }
+
+        return VerifyResetOtpScreen(initialLogin: login);
+      },
+    ),
+    GoRoute(
+      path: RouteNames.resetPassword,
+      name: 'resetPassword',
+      builder: (context, state) {
+        String? login;
+        String? resetToken;
+
+        final extra = state.extra;
+        if (extra is Map<String, dynamic>) {
+          final valueLogin = extra['login'];
+          final valueResetToken = extra['resetToken'];
+
+          if (valueLogin is String && valueLogin.trim().isNotEmpty) {
+            login = valueLogin;
+          }
+
+          if (valueResetToken is String && valueResetToken.trim().isNotEmpty) {
+            resetToken = valueResetToken;
+          }
+        }
+
+        return ResetPasswordScreen(
+          initialLogin: login,
+          resetToken: resetToken,
+        );
+      },
+    ),
+    GoRoute(
       path: RouteNames.signup,
       name: 'signup',
       builder: (context, state) {
@@ -73,18 +138,7 @@ final goRouter = GoRouter(
       path: RouteNames.otpVerification,
       name: 'otpVerification',
       builder: (context, state) {
-        String phone = '';
-
-        final extra = state.extra;
-        if (extra is String) {
-          phone = extra;
-        } else if (extra is Map<String, dynamic>) {
-          phone = (extra['phone'] as String?) ?? '';
-        }
-
-        return OTPVerificationScreen(
-          phone: phone,
-        );
+        return const OTPVerificationScreen();
       },
     ),
     GoRoute(
@@ -143,6 +197,34 @@ final goRouter = GoRouter(
       name: 'profile',
       builder: (context, state) {
         return const ProfileScreen();
+      },
+    ),
+    GoRoute(
+      path: RouteNames.profileEdit,
+      name: 'profileEdit',
+      builder: (context, state) {
+        return const ProfileEditScreen();
+      },
+    ),
+    GoRoute(
+      path: RouteNames.promotions,
+      name: 'promotions',
+      builder: (context, state) {
+        return const PromotionsScreen();
+      },
+    ),
+    GoRoute(
+      path: RouteNames.support,
+      name: 'support',
+      builder: (context, state) {
+        return const SupportScreen();
+      },
+    ),
+    GoRoute(
+      path: RouteNames.about,
+      name: 'about',
+      builder: (context, state) {
+        return const AboutScreen();
       },
     ),
     GoRoute(

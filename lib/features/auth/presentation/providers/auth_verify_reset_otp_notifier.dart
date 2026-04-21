@@ -3,51 +3,52 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
-import '../../domain/use_cases/resend_passenger_otp_use_case.dart';
-import '../../domain/use_cases/verify_passenger_otp_use_case.dart';
+import '../../domain/use_cases/forgot_passenger_password_use_case.dart';
+import '../../domain/use_cases/verify_passenger_reset_otp_use_case.dart';
 
-final verifyPassengerOtpNotifierProvider =
-    AsyncNotifierProvider<VerifyPassengerOtpNotifier, bool>(
-  VerifyPassengerOtpNotifier.new,
+final verifyPassengerResetOtpNotifierProvider =
+    AsyncNotifierProvider<VerifyPassengerResetOtpNotifier, String?>(
+  VerifyPassengerResetOtpNotifier.new,
 );
 
-class VerifyPassengerOtpNotifier extends AsyncNotifier<bool> {
-  late final VerifyPassengerOtpUseCase _verifyPassengerOtpUseCase;
-  late final ResendPassengerOtpUseCase _resendPassengerOtpUseCase;
+class VerifyPassengerResetOtpNotifier extends AsyncNotifier<String?> {
+  late final VerifyPassengerResetOtpUseCase _verifyPassengerResetOtpUseCase;
+  late final ForgotPassengerPasswordUseCase _forgotPassengerPasswordUseCase;
 
   @override
-  Future<bool> build() async {
-    _verifyPassengerOtpUseCase = getIt<VerifyPassengerOtpUseCase>();
-    _resendPassengerOtpUseCase = ResendPassengerOtpUseCase(getIt<AuthRepository>());
-    return false;
+  Future<String?> build() async {
+    final authRepository = getIt<AuthRepository>();
+    _verifyPassengerResetOtpUseCase = VerifyPassengerResetOtpUseCase(authRepository);
+    _forgotPassengerPasswordUseCase = ForgotPassengerPasswordUseCase(authRepository);
+    return null;
   }
 
-  Future<bool> verifyPassengerOtp({
-    required String otpCode,
+  Future<String?> verifyResetOtp({
+    required String login,
+    required String otp,
   }) async {
     state = const AsyncValue.loading();
 
     state = await AsyncValue.guard(
-      () async {
-        await _verifyPassengerOtpUseCase(
-          otpCode: otpCode,
-        );
-        return true;
-      },
+      () => _verifyPassengerResetOtpUseCase(
+        login: login,
+        otp: otp,
+      ),
     );
 
-    return state.value ?? false;
+    return state.value;
   }
 
-  Future<bool> resendPassengerOtp() async {
+  Future<bool> resendResetOtp({
+    required String login,
+  }) async {
+    final currentToken = state.value;
     state = const AsyncValue.loading();
 
-    state = await AsyncValue.guard(
-      () async {
-        await _resendPassengerOtpUseCase();
-        return false;
-      },
-    );
+    state = await AsyncValue.guard(() async {
+      await _forgotPassengerPasswordUseCase(login: login);
+      return currentToken;
+    });
 
     return !state.hasError;
   }

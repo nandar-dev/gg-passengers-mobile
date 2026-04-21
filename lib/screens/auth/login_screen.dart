@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/providers/auth_login_notifier.dart';
 import '../../core/routing/route_names.dart';
+import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/primary_text_field.dart';
 
@@ -72,19 +73,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     final errorMessage = notifier.toReadableError();
     if (errorMessage != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(errorMessage)));
+      AppMessage.error(context, errorMessage);
       return;
     }
 
     if (session != null) {
-      context.go(
-        RouteNames.otpVerification,
-        extra: <String, String>{
-          'phone': session.passenger.phoneNumber,
-        },
-      );
+      if (!session.passenger.isPhoneVerified) {
+        final isOtpRequested = await notifier.resendPassengerOtp();
+        if (!mounted) return;
+
+        final resendError = notifier.toReadableError();
+        if (!isOtpRequested || resendError != null) {
+          AppMessage.error(context, resendError ?? 'Unable to request OTP. Please try again.');
+          return;
+        }
+
+        AppMessage.success(context, 'OTP sent to your email');
+
+        context.go(RouteNames.otpVerification);
+        return;
+      }
+
+      context.go(RouteNames.home);
     }
   }
 
@@ -134,6 +144,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     setState(() => _passwordError = null);
                   }
                 },
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: isLoading ? null : () => context.go(RouteNames.forgotPassword),
+                  child: const Text('Forgot password?'),
+                ),
               ),
               const SizedBox(height: 24),
               PrimaryButton(

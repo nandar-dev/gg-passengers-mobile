@@ -3,53 +3,35 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
-import '../../domain/use_cases/resend_passenger_otp_use_case.dart';
-import '../../domain/use_cases/verify_passenger_otp_use_case.dart';
+import '../../domain/use_cases/forgot_passenger_password_use_case.dart';
 
-final verifyPassengerOtpNotifierProvider =
-    AsyncNotifierProvider<VerifyPassengerOtpNotifier, bool>(
-  VerifyPassengerOtpNotifier.new,
+final forgotPassengerPasswordNotifierProvider =
+    AsyncNotifierProvider<ForgotPassengerPasswordNotifier, bool>(
+  ForgotPassengerPasswordNotifier.new,
 );
 
-class VerifyPassengerOtpNotifier extends AsyncNotifier<bool> {
-  late final VerifyPassengerOtpUseCase _verifyPassengerOtpUseCase;
-  late final ResendPassengerOtpUseCase _resendPassengerOtpUseCase;
+class ForgotPassengerPasswordNotifier extends AsyncNotifier<bool> {
+  late final ForgotPassengerPasswordUseCase _forgotPassengerPasswordUseCase;
 
   @override
   Future<bool> build() async {
-    _verifyPassengerOtpUseCase = getIt<VerifyPassengerOtpUseCase>();
-    _resendPassengerOtpUseCase = ResendPassengerOtpUseCase(getIt<AuthRepository>());
+    _forgotPassengerPasswordUseCase = ForgotPassengerPasswordUseCase(
+      getIt<AuthRepository>(),
+    );
     return false;
   }
 
-  Future<bool> verifyPassengerOtp({
-    required String otpCode,
+  Future<bool> forgotPassword({
+    required String login,
   }) async {
     state = const AsyncValue.loading();
 
-    state = await AsyncValue.guard(
-      () async {
-        await _verifyPassengerOtpUseCase(
-          otpCode: otpCode,
-        );
-        return true;
-      },
-    );
+    state = await AsyncValue.guard(() async {
+      await _forgotPassengerPasswordUseCase(login: login);
+      return true;
+    });
 
     return state.value ?? false;
-  }
-
-  Future<bool> resendPassengerOtp() async {
-    state = const AsyncValue.loading();
-
-    state = await AsyncValue.guard(
-      () async {
-        await _resendPassengerOtpUseCase();
-        return false;
-      },
-    );
-
-    return !state.hasError;
   }
 
   String? toReadableError() {
@@ -60,7 +42,7 @@ class VerifyPassengerOtpNotifier extends AsyncNotifier<bool> {
       return currentError.message;
     }
 
-    return 'Unable to verify OTP. Please try again.';
+    return 'Unable to send reset OTP. Please try again.';
   }
 
   Map<String, String> validationErrors() {

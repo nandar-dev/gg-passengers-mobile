@@ -60,12 +60,15 @@ class LoginPassengerModel {
   final String name;
   final String email;
   final String phone;
+  @JsonKey(name: 'is_verified')
+  final bool isVerified;
 
   const LoginPassengerModel({
     required this.id,
     required this.name,
     required this.email,
     required this.phone,
+    required this.isVerified,
   });
 
   factory LoginPassengerModel.fromJson(Map<String, dynamic> json) =>
@@ -85,7 +88,7 @@ class LoginPassengerModel {
       firstName: firstName,
       lastName: lastName,
       email: email,
-      isPhoneVerified: false,
+      isPhoneVerified: isVerified,
       isProfileSetup: true,
       createdAt: now,
       updatedAt: now,

@@ -3,19 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pinput/pinput.dart';
 
 import '../../features/auth/presentation/providers/auth_otp_notifier.dart';
 import '../../core/routing/route_names.dart';
+import '../../shared/widgets/app_message.dart';
+import '../../shared/widgets/otp_pin_input.dart';
 import '../../shared/widgets/primary_button.dart';
 
 class OTPVerificationScreen extends ConsumerStatefulWidget {
-  final String phone;
-
-  const OTPVerificationScreen({
-    super.key,
-    required this.phone,
-  });
+  const OTPVerificationScreen({super.key});
 
   @override
   ConsumerState<OTPVerificationScreen> createState() => _OTPVerificationScreenState();
@@ -79,6 +75,22 @@ class _OTPVerificationScreenState extends ConsumerState<OTPVerificationScreen>
     });
   }
 
+  Future<void> _resendOtp() async {
+    final notifier = ref.read(verifyPassengerOtpNotifierProvider.notifier);
+    final bool isResent = await notifier.resendPassengerOtp();
+
+    if (!mounted) return;
+
+    final errorMessage = notifier.toReadableError();
+    if (!isResent || errorMessage != null) {
+      AppMessage.error(context, errorMessage ?? 'Unable to resend OTP. Please try again.');
+      return;
+    }
+
+    _startTimer();
+    AppMessage.success(context, 'OTP code sent to your email');
+  }
+
   Future<void> _verifyOtp() async {
     if (_otpController.text.trim().length < 6) {
       setState(() => _otpError = 'Please enter a valid 6-digit OTP');
@@ -104,39 +116,15 @@ class _OTPVerificationScreenState extends ConsumerState<OTPVerificationScreen>
 
     final errorMessage = notifier.toReadableError();
     if (errorMessage != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(errorMessage)));
+      AppMessage.error(context, errorMessage);
       return;
     }
 
     if (isVerified) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('OTP verified successfully')));
+      AppMessage.success(context, 'OTP verified successfully');
     }
 
     context.go(RouteNames.home);
-  }
-
-  PinTheme _pinTheme({
-    required Color borderColor,
-    Color fillColor = const Color(0xFFFDFDFD),
-  }) {
-    return PinTheme(
-      width: 52,
-      height: 60,
-      textStyle: const TextStyle(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF202124),
-      ),
-      decoration: BoxDecoration(
-        color: fillColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor, width: 1.4),
-      ),
-    );
   }
 
   @override
@@ -161,7 +149,7 @@ class _OTPVerificationScreenState extends ConsumerState<OTPVerificationScreen>
                 style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
-              Text('Enter the 6-digit code sent to ${widget.phone}'),
+              const Text('OTP code will be sent to your email'),
               const SizedBox(height: 28),
               AnimatedBuilder(
                 animation: _shakeAnimation,
@@ -172,29 +160,12 @@ class _OTPVerificationScreenState extends ConsumerState<OTPVerificationScreen>
                   );
                 },
                 child: Center(
-                  child: Pinput(
+                  child: OtpPinInput(
                     controller: _otpController,
                     focusNode: _otpFocusNode,
                     autofocus: true,
-                    length: 6,
-                    keyboardType: TextInputType.number,
-                    defaultPinTheme: _pinTheme(
-                      borderColor: const Color(0xFFE5E7EB),
-                    ),
-                    focusedPinTheme: _pinTheme(
-                      borderColor: const Color(0xFFFE8C00),
-                      fillColor: const Color(0xFFFFFAF3),
-                    ),
-                    submittedPinTheme: _pinTheme(
-                      borderColor: const Color(0xFFFFC978),
-                      fillColor: const Color(0xFFFFF6E8),
-                    ),
-                    pinputAutovalidateMode: PinputAutovalidateMode.onSubmit,
-                    validator: (value) {
-                      if (_otpError != null) return _otpError;
-                      if ((value ?? '').length != 6) return 'Invalid OTP';
-                      return null;
-                    },
+                    enabled: !isLoading,
+                    errorText: _otpError,
                     onChanged: (_) {
                       if (_otpError != null) {
                         setState(() => _otpError = null);
@@ -217,8 +188,8 @@ class _OTPVerificationScreenState extends ConsumerState<OTPVerificationScreen>
                     Text('Resend in ${_secondsLeft}s')
                   else
                     TextButton(
-                      onPressed: _startTimer,
-                      child: const Text('Resend OTP'),
+                      onPressed: isLoading ? null : _resendOtp,
+                      child: const Text('Resend OTP to Email'),
                     ),
                 ],
               ),

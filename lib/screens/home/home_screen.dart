@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../profile/settings_screen.dart';
+import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/secondary_button.dart';
+
+enum _LocationChoice { allowed, maybeLater }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,71 +21,276 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const String _locationChoiceKey = 'home.location_choice';
+  static const String _choiceAllowed = 'allowed';
+  static const String _choiceMaybeLater = 'maybe_later';
+
   int _currentIndex = 0;
-  bool _hasAskedLocation = false;
+  bool _didScheduleInitialPrompt = false;
+  bool _isLocationChoiceLoaded = false;
+  bool _hasShownInitialPrompt = false;
+  bool _isLocationPromptOpen = false;
+  LatLng _mapCenter = const LatLng(12.9716, 77.5946);
+  String? _savedLocationChoice;
+  String _locationStatusLabel = 'Checking location...';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedLocationChoice();
+    _refreshLocationStatus();
+    _syncLocationToMapIfAllowed();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_hasAskedLocation) return;
-    _hasAskedLocation = true;
+    if (_didScheduleInitialPrompt) return;
+    _didScheduleInitialPrompt = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showLocationPrompt();
+      _showInitialLocationPromptIfNeeded();
     });
   }
 
-  Future<void> _showLocationPrompt() async {
+  Future<void> _loadSavedLocationChoice() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? savedChoice = prefs.getString(_locationChoiceKey);
     if (!mounted) return;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Enable your location',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Location helps us find nearby rides and accurate pickup points.',
-                style: TextStyle(color: Color(0xFF5F6368)),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: PrimaryButton(
-                  label: 'Allow Location Access',
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await Geolocator.requestPermission();
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              SecondaryButton(
-                label: 'Maybe Later',
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-        );
-      },
+    setState(() {
+      _savedLocationChoice = savedChoice;
+      _isLocationChoiceLoaded = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showInitialLocationPromptIfNeeded();
+    });
+  }
+
+  Future<void> _refreshLocationStatus() async {
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final LocationPermission permission = await Geolocator.checkPermission();
+
+    String status;
+    if (!serviceEnabled) {
+      status = 'Location: Service Off';
+    } else if (permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse) {
+      status = 'Location: Allowed';
+    } else if (permission == LocationPermission.deniedForever) {
+      status = 'Location: Denied Forever';
+    } else {
+      status = 'Location: Denied';
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _locationStatusLabel = status;
+    });
+  }
+
+  Future<void> _syncLocationToMapIfAllowed() async {
+    final LocationPermission permission = await Geolocator.checkPermission();
+    final bool isGranted = permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+    if (!isGranted) return;
+
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    final Position position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
     );
+
+    if (!mounted) return;
+    setState(() {
+      _mapCenter = LatLng(position.latitude, position.longitude);
+    });
+  }
+
+  Future<void> _saveLocationChoice(String choice) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_locationChoiceKey, choice);
+    if (!mounted) return;
+    setState(() {
+      _savedLocationChoice = choice;
+    });
+  }
+
+  Future<void> _showInitialLocationPromptIfNeeded() async {
+    if (!mounted) return;
+    if (!_isLocationChoiceLoaded || _hasShownInitialPrompt) return;
+    if (_savedLocationChoice == _choiceMaybeLater ||
+        _savedLocationChoice == _choiceAllowed) {
+      return;
+    }
+    _hasShownInitialPrompt = true;
+    final _LocationChoice? choice = await _showLocationPrompt();
+    if (!mounted || choice == null) return;
+
+    if (choice == _LocationChoice.allowed) {
+      await _requestLocationPermission();
+      return;
+    }
+
+    await _saveLocationChoice(_choiceMaybeLater);
+    await _refreshLocationStatus();
+  }
+
+  Future<_LocationChoice?> _showLocationPrompt() async {
+    if (!mounted) return null;
+    if (_isLocationPromptOpen) return null;
+
+    _isLocationPromptOpen = true;
+
+    try {
+      return await showModalBottomSheet<_LocationChoice>(
+        context: context,
+        isDismissible: false,
+        enableDrag: false,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (context) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enable your location',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Location helps us find nearby rides and accurate pickup points.',
+                  style: TextStyle(color: Color(0xFF5F6368)),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: PrimaryButton(
+                    label: 'Allow Location Access',
+                    onPressed: () => Navigator.of(context).pop(_LocationChoice.allowed),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SecondaryButton(
+                  label: 'Maybe Later',
+                  onPressed: () => Navigator.of(context).pop(_LocationChoice.maybeLater),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } finally {
+      _isLocationPromptOpen = false;
+    }
+  }
+
+  Future<bool> _requestLocationPermission() async {
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      await _refreshLocationStatus();
+      if (mounted) {
+        AppMessage.info(
+          context,
+          'Please enable location services to continue',
+        );
+      }
+      return false;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    final bool granted = permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+
+    if (granted) {
+      await _saveLocationChoice(_choiceAllowed);
+      await _refreshLocationStatus();
+      await _syncLocationToMapIfAllowed();
+      return true;
+    }
+
+    if (mounted && permission == LocationPermission.deniedForever) {
+      AppMessage.error(
+        context,
+        'Location permission is permanently denied. Please allow it in Settings.',
+      );
+    }
+
+    await _refreshLocationStatus();
+
+    return false;
+  }
+
+  Future<bool> _ensureLocationAccess() async {
+    final LocationPermission permission = await Geolocator.checkPermission();
+    final bool alreadyGranted = permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+    if (alreadyGranted) {
+      await _saveLocationChoice(_choiceAllowed);
+      await _refreshLocationStatus();
+      await _syncLocationToMapIfAllowed();
+      return true;
+    }
+
+    final _LocationChoice? choice = await _showLocationPrompt();
+    if (choice == _LocationChoice.maybeLater) {
+      await _saveLocationChoice(_choiceMaybeLater);
+      await _refreshLocationStatus();
+      return false;
+    }
+
+    if (choice == _LocationChoice.allowed) {
+      return _requestLocationPermission();
+    }
+
+    return false;
+  }
+
+  Future<void> _onWhereToTap() async {
+    final bool hasAccess = await _ensureLocationAccess();
+    if (!mounted) return;
+
+    if (hasAccess) {
+      await _syncLocationToMapIfAllowed();
+      context.pushNamed('searchLocation');
+      return;
+    }
+
+    AppMessage.info(
+      context,
+      'Location access is required to find nearby pickup points.',
+    );
+  }
+
+  Future<void> _onRecenterTap() async {
+    final bool hasAccess = await _ensureLocationAccess();
+    if (!hasAccess || !mounted) return;
+
+    await _syncLocationToMapIfAllowed();
+    AppMessage.success(context, 'Map centered to your current location');
   }
 
   @override
   Widget build(BuildContext context) {
-    const List<Widget> tabs = [_HomeTab(), _RidesTab(), _AccountTab()];
+    final List<Widget> tabs = [
+      _HomeTab(
+        onWhereToTap: _onWhereToTap,
+        onRecenterTap: _onRecenterTap,
+        locationStatusLabel: _locationStatusLabel,
+        mapCenter: _mapCenter,
+      ),
+      const _RidesTab(),
+      const _AccountTab(),
+    ];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F5F7),
@@ -92,7 +304,17 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _HomeTab extends StatelessWidget {
-  const _HomeTab();
+  final VoidCallback onWhereToTap;
+  final VoidCallback onRecenterTap;
+  final String locationStatusLabel;
+  final LatLng mapCenter;
+
+  const _HomeTab({
+    required this.onWhereToTap,
+    required this.onRecenterTap,
+    required this.locationStatusLabel,
+    required this.mapCenter,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -107,37 +329,61 @@ class _HomeTab extends StatelessWidget {
     return Stack(
       children: [
         Positioned.fill(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFD7E9FF), Color(0xFFE9F7E9)],
-              ),
+          child: FlutterMap(
+            key: ValueKey<String>(
+              'map-${mapCenter.latitude.toStringAsFixed(5)}-${mapCenter.longitude.toStringAsFixed(5)}',
             ),
-            child: Stack(
-              children: const [
-                Positioned(
-                  top: 120,
-                  left: 30,
-                  child: _MapVehicle(icon: Icons.directions_car_rounded),
+            options: MapOptions(
+              initialCenter: mapCenter,
+              initialZoom: 13.4,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.gg.taxi',
+              ),
+              const MarkerLayer(
+                markers: [
+                  Marker(
+                    point: LatLng(12.9688, 77.6010),
+                    width: 36,
+                    height: 36,
+                    child: _MapVehicle(icon: Icons.directions_car_rounded),
+                  ),
+                  Marker(
+                    point: LatLng(12.9752, 77.5886),
+                    width: 36,
+                    height: 36,
+                    child: _MapVehicle(icon: Icons.two_wheeler_rounded),
+                  ),
+                  Marker(
+                    point: LatLng(12.9802, 77.5951),
+                    width: 36,
+                    height: 36,
+                    child: _MapVehicle(icon: Icons.directions_car_rounded),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 16,
+          right: 16,
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            elevation: 2,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onRecenterTap,
+              child: const Padding(
+                padding: EdgeInsets.all(10),
+                child: Icon(
+                  Icons.my_location_rounded,
+                  color: Color(0xFF202124),
                 ),
-                Positioned(
-                  top: 180,
-                  right: 40,
-                  child: _MapVehicle(icon: Icons.two_wheeler_rounded),
-                ),
-                Positioned(
-                  bottom: 260,
-                  left: 70,
-                  child: _MapVehicle(icon: Icons.directions_car_rounded),
-                ),
-                Positioned(
-                  bottom: 320,
-                  right: 80,
-                  child: _MapVehicle(icon: Icons.two_wheeler_rounded),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -177,7 +423,7 @@ class _HomeTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   SizedBox(
-                    height: 110,
+                    height: 70,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: offers.length,
@@ -222,13 +468,19 @@ class _HomeTab extends StatelessWidget {
                         .toList(),
                   ),
                   const SizedBox(height: 16),
-                  const TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Where to',
-                      prefixIcon: Icon(Icons.search_rounded),
-                      filled: true,
-                      fillColor: Color(0xFFFAFAFA),
-                      border: OutlineInputBorder(borderSide: BorderSide.none),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: onWhereToTap,
+                    child: const AbsorbPointer(
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Where to',
+                          prefixIcon: Icon(Icons.search_rounded),
+                          filled: true,
+                          fillColor: Color(0xFFFAFAFA),
+                          border: OutlineInputBorder(borderSide: BorderSide.none),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),

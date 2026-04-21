@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../domain/entities/auth_session.dart';
+import '../../domain/repositories/auth_repository.dart';
 import '../../domain/use_cases/login_passenger_use_case.dart';
+import '../../domain/use_cases/resend_passenger_otp_use_case.dart';
 
 final loginPassengerNotifierProvider =
     AsyncNotifierProvider<LoginPassengerNotifier, AuthSession?>(
@@ -12,10 +14,12 @@ final loginPassengerNotifierProvider =
 
 class LoginPassengerNotifier extends AsyncNotifier<AuthSession?> {
   late final LoginPassengerUseCase _loginPassengerUseCase;
+  late final ResendPassengerOtpUseCase _resendPassengerOtpUseCase;
 
   @override
   Future<AuthSession?> build() async {
     _loginPassengerUseCase = getIt<LoginPassengerUseCase>();
+    _resendPassengerOtpUseCase = ResendPassengerOtpUseCase(getIt<AuthRepository>());
     return null;
   }
 
@@ -33,6 +37,18 @@ class LoginPassengerNotifier extends AsyncNotifier<AuthSession?> {
     );
 
     return state.value;
+  }
+
+  Future<bool> resendPassengerOtp() async {
+    final currentSession = state.value;
+    state = const AsyncValue.loading();
+
+    state = await AsyncValue.guard(() async {
+      await _resendPassengerOtpUseCase();
+      return currentSession;
+    });
+
+    return !state.hasError;
   }
 
   String? toReadableError() {

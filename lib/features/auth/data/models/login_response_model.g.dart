@@ -46,6 +46,7 @@ LoginPassengerModel _$LoginPassengerModelFromJson(Map<String, dynamic> json) =>
       name: json['name'] as String,
       email: json['email'] as String,
       phone: json['phone'] as String,
+      isVerified: json['is_verified'] as bool,
     );
 
 Map<String, dynamic> _$LoginPassengerModelToJson(
@@ -55,4 +56,5 @@ Map<String, dynamic> _$LoginPassengerModelToJson(
   'name': instance.name,
   'email': instance.email,
   'phone': instance.phone,
+  'is_verified': instance.isVerified,
 };

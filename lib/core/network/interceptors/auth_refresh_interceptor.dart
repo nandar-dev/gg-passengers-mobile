@@ -18,6 +18,11 @@ class AuthRefreshInterceptor extends Interceptor {
   bool _isAuthExcludedPath(String path) {
     return path.contains('/v1/auth/passenger/login') ||
         path.contains('/v1/auth/passenger/register') ||
+      path.contains('/v1/auth/passenger/otp-verify') ||
+      path.contains('/v1/auth/passenger/otp-resend') ||
+      path.contains('/v1/auth/passenger/forgot-password') ||
+      path.contains('/v1/auth/passenger/verify-reset-otp') ||
+      path.contains('/v1/auth/passenger/reset-password') ||
         path.contains('/v1/auth/passenger/refresh');
   }
 

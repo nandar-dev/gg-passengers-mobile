@@ -2,13 +2,17 @@ import 'package:injectable/injectable.dart';
 
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/dio_error_mapper.dart';
+import '../models/forgot_password_request_model.dart';
 import '../models/login_request_model.dart';
 import '../models/login_response_model.dart';
 import '../models/logout_response_model.dart';
 import '../models/otp_verify_request_model.dart';
 import '../models/otp_verify_response_model.dart';
+import '../models/reset_password_request_model.dart';
 import '../models/register_request_model.dart';
 import '../models/register_response_model.dart';
+import '../models/verify_reset_otp_request_model.dart';
+import '../models/verify_reset_otp_response_model.dart';
 import 'auth_api_service.dart';
 
 @lazySingleton
@@ -86,6 +90,116 @@ class AuthRemoteDataSource {
       final response = await _apiService.verifyPassengerOtp(
         OtpVerifyRequestModel(
           otpCode: otpCode,
+        ),
+      );
+
+      if (!response.success) {
+        throw ApiException(
+          message: response.message,
+          statusCode: response.code,
+          details: response.errors is Map<String, dynamic>
+              ? <String, dynamic>{'errors': response.errors}
+              : null,
+        );
+      }
+
+      return response;
+    } catch (error) {
+      if (error is ApiException) rethrow;
+      throw DioErrorMapper.map(error);
+    }
+  }
+
+  Future<OtpVerifyResponseModel> resendPassengerOtp() async {
+    try {
+      final response = await _apiService.resendPassengerOtp();
+
+      if (!response.success) {
+        throw ApiException(
+          message: response.message,
+          statusCode: response.code,
+          details: response.errors is Map<String, dynamic>
+              ? <String, dynamic>{'errors': response.errors}
+              : null,
+        );
+      }
+
+      return response;
+    } catch (error) {
+      if (error is ApiException) rethrow;
+      throw DioErrorMapper.map(error);
+    }
+  }
+
+  Future<OtpVerifyResponseModel> forgotPassengerPassword({
+    required String login,
+  }) async {
+    try {
+      final response = await _apiService.forgotPassengerPassword(
+        ForgotPasswordRequestModel(
+          login: login,
+        ),
+      );
+
+      if (!response.success) {
+        throw ApiException(
+          message: response.message,
+          statusCode: response.code,
+          details: response.errors is Map<String, dynamic>
+              ? <String, dynamic>{'errors': response.errors}
+              : null,
+        );
+      }
+
+      return response;
+    } catch (error) {
+      if (error is ApiException) rethrow;
+      throw DioErrorMapper.map(error);
+    }
+  }
+
+  Future<VerifyResetOtpResponseModel> verifyPassengerResetOtp({
+    required String login,
+    required String otp,
+  }) async {
+    try {
+      final response = await _apiService.verifyPassengerResetOtp(
+        VerifyResetOtpRequestModel(
+          login: login,
+          otp: otp,
+        ),
+      );
+
+      if (!response.success || response.data == null) {
+        throw ApiException(
+          message: response.message,
+          statusCode: response.code,
+          details: response.errors is Map<String, dynamic>
+              ? <String, dynamic>{'errors': response.errors}
+              : null,
+        );
+      }
+
+      return response;
+    } catch (error) {
+      if (error is ApiException) rethrow;
+      throw DioErrorMapper.map(error);
+    }
+  }
+
+  Future<OtpVerifyResponseModel> resetPassengerPassword({
+    required String login,
+    required String resetToken,
+    required String newPassword,
+    required String newPasswordConfirmation,
+  }) async {
+    try {
+      final response = await _apiService.resetPassengerPassword(
+        ResetPasswordRequestModel(
+          login: login,
+          resetToken: resetToken,
+          newPassword: newPassword,
+          newPasswordConfirmation: newPasswordConfirmation,
         ),
       );
 
