@@ -50,8 +50,8 @@ abstract class AuthApiService {
   );
 
   @POST('/v1/auth/passenger/refresh')
-  Future<LoginResponseModel> refreshPassengerToken(@Header('Token') String token);
+  Future<LoginResponseModel> refreshPassengerToken(@Header('Authorization') String token);
 
   @POST('/v1/auth/passenger/logout')
-  Future<LogoutResponseModel> logoutPassenger(@Header('Token') String token);
+  Future<LogoutResponseModel> logoutPassenger(@Header('Authorization') String token);
 }

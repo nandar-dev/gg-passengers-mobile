@@ -91,7 +91,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _syncLocationToMapIfAllowed() async {
     final LocationPermission permission = await Geolocator.checkPermission();
-    final bool isGranted = permission == LocationPermission.always ||
+    final bool isGranted =
+        permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
     if (!isGranted) return;
 
@@ -172,13 +173,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: double.infinity,
                   child: PrimaryButton(
                     label: 'Allow Location Access',
-                    onPressed: () => Navigator.of(context).pop(_LocationChoice.allowed),
+                    onPressed: () =>
+                        Navigator.of(context).pop(_LocationChoice.allowed),
                   ),
                 ),
                 const SizedBox(height: 12),
                 SecondaryButton(
                   label: 'Maybe Later',
-                  onPressed: () => Navigator.of(context).pop(_LocationChoice.maybeLater),
+                  onPressed: () =>
+                      Navigator.of(context).pop(_LocationChoice.maybeLater),
                 ),
               ],
             ),
@@ -195,10 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!serviceEnabled) {
       await _refreshLocationStatus();
       if (mounted) {
-        AppMessage.info(
-          context,
-          'Please enable location services to continue',
-        );
+        AppMessage.info(context, 'Please enable location services to continue');
       }
       return false;
     }
@@ -208,13 +208,14 @@ class _HomeScreenState extends State<HomeScreen> {
       permission = await Geolocator.requestPermission();
     }
 
-    final bool granted = permission == LocationPermission.always ||
+    final bool granted =
+        permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
 
     if (granted) {
       await _saveLocationChoice(_choiceAllowed);
       await _refreshLocationStatus();
-      await _syncLocationToMapIfAllowed();
+      _syncLocationToMapIfAllowed();
       return true;
     }
 
@@ -232,12 +233,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<bool> _ensureLocationAccess() async {
     final LocationPermission permission = await Geolocator.checkPermission();
-    final bool alreadyGranted = permission == LocationPermission.always ||
+    final bool alreadyGranted =
+        permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
     if (alreadyGranted) {
       await _saveLocationChoice(_choiceAllowed);
       await _refreshLocationStatus();
-      await _syncLocationToMapIfAllowed();
+      _syncLocationToMapIfAllowed();
       return true;
     }
 
@@ -260,15 +262,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     if (hasAccess) {
-      await _syncLocationToMapIfAllowed();
-      context.pushNamed('searchLocation');
-      return;
+      // Do not await the map sync to avoid delaying the navigation
+      _syncLocationToMapIfAllowed();
     }
 
-    AppMessage.info(
-      context,
-      'Location access is required to find nearby pickup points.',
-    );
+    context.pushNamed('searchLocation');
   }
 
   Future<void> _onRecenterTap() async {
@@ -276,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!hasAccess || !mounted) return;
 
     await _syncLocationToMapIfAllowed();
+    if (!mounted) return;
     AppMessage.success(context, 'Map centered to your current location');
   }
 
@@ -333,10 +332,7 @@ class _HomeTab extends StatelessWidget {
             key: ValueKey<String>(
               'map-${mapCenter.latitude.toStringAsFixed(5)}-${mapCenter.longitude.toStringAsFixed(5)}',
             ),
-            options: MapOptions(
-              initialCenter: mapCenter,
-              initialZoom: 13.4,
-            ),
+            options: MapOptions(initialCenter: mapCenter, initialZoom: 13.4),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -427,7 +423,7 @@ class _HomeTab extends StatelessWidget {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: offers.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      separatorBuilder: (_, index) => const SizedBox(width: 10),
                       itemBuilder: (_, index) => Container(
                         width: 250,
                         padding: const EdgeInsets.all(14),
@@ -478,7 +474,9 @@ class _HomeTab extends StatelessWidget {
                           prefixIcon: Icon(Icons.search_rounded),
                           filled: true,
                           fillColor: Color(0xFFFAFAFA),
-                          border: OutlineInputBorder(borderSide: BorderSide.none),
+                          border: OutlineInputBorder(
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                       ),
                     ),

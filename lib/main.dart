@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'core/network/api_exception.dart';
 import 'features/auth/domain/use_cases/refresh_passenger_token_use_case.dart';
 import 'config/app_config.dart';
 import 'core/di/service_locator.dart';
@@ -17,12 +19,8 @@ void main() async {
   await configureDependencies();
 
   await _bootstrapSession();
-  
-  runApp(
-    const ProviderScope(
-      child: GGTaxiApp(),
-    ),
-  );
+
+  runApp(const ProviderScope(child: GGTaxiApp()));
 }
 
 Future<void> _bootstrapSession() async {
@@ -34,10 +32,18 @@ Future<void> _bootstrapSession() async {
   }
 
   try {
+    // Attempt to refresh the token to validate it's still valid
     await getIt<RefreshPassengerTokenUseCase>().call();
     appSessionState.clearForcedLogout();
-  } catch (_) {
-    await tokenStorage.clearAccessToken();
+  } catch (error) {
+    // Only clear token if it's explicitly unauthorized (401/403)
+    if (error is ApiException &&
+        (error.statusCode == 401 || error.statusCode == 403)) {
+      await tokenStorage.clearAccessToken();
+      return;
+    }
+    // For other errors (network, etc.), keep the token and let the user try again
+    // This prevents unnecessary logouts due to temporary network issues
   }
 }
 
