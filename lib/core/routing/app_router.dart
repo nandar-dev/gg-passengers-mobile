@@ -22,6 +22,7 @@ import '../../screens/ride/ride_history_screen.dart';
 import '../../screens/ride/ride_review_screen.dart';
 import '../../screens/ride/ride_tracking_screen.dart';
 import '../../screens/splash_screen.dart';
+import '../../features/booking/presentation/models/booking_args.dart';
 import 'route_names.dart';
 
 /// Global GoRouter instance
@@ -152,14 +153,28 @@ final goRouter = GoRouter(
           path: 'search-location',
           name: 'searchLocation',
           builder: (context, state) {
-            return const SearchLocationScreen();
+            String? serviceId;
+
+            final extra = state.extra;
+            if (extra is SearchLocationArgs) {
+              serviceId = extra.serviceId;
+            }
+
+            return SearchLocationScreen(serviceId: serviceId);
           },
         ),
         GoRoute(
           path: 'ride-category',
           name: 'rideCategory',
           builder: (context, state) {
-            return const RideCategoryScreen();
+            RideCategoryArgs? args;
+
+            final extra = state.extra;
+            if (extra is RideCategoryArgs) {
+              args = extra;
+            }
+
+            return RideCategoryScreen(args: args);
           },
         ),
         GoRoute(

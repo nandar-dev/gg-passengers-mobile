@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/network/api_exception.dart';
 import 'features/auth/domain/use_cases/refresh_passenger_token_use_case.dart';
+import 'features/payments/domain/use_cases/get_payment_methods_use_case.dart';
+import 'features/services/domain/use_cases/get_services_use_case.dart';
 import 'config/app_config.dart';
 import 'core/di/service_locator.dart';
 import 'core/network/token_storage.dart';
@@ -20,7 +24,30 @@ void main() async {
 
   await _bootstrapSession();
 
+  _prefetchData();
+
   runApp(const ProviderScope(child: GGTaxiApp()));
+}
+
+void _prefetchData() {
+  unawaited(_prefetchPaymentMethods());
+  unawaited(_prefetchServices());
+}
+
+Future<void> _prefetchPaymentMethods() async {
+  try {
+    await getIt<GetPaymentMethodsUseCase>().call();
+  } catch (_) {
+    // Ignore startup prefetch errors. Screens will retry when opened.
+  }
+}
+
+Future<void> _prefetchServices() async {
+  try {
+    await getIt<GetServicesUseCase>().call();
+  } catch (_) {
+    // Ignore startup prefetch errors.
+  }
 }
 
 Future<void> _bootstrapSession() async {

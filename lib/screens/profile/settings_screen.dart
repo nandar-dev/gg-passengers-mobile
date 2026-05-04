@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/di/service_locator.dart';
 import '../../core/routing/route_names.dart';
 import '../../core/session/app_session_state.dart';
+import '../../core/theme/app_theme.dart';
 import '../../features/auth/domain/repositories/auth_repository.dart';
+import '../../features/payments/domain/use_cases/get_payment_methods_use_case.dart';
 import '../../shared/widgets/app_message.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -26,13 +28,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _tripAlerts = true;
   bool _biometricLock = false;
   String _selectedLanguage = 'English';
-  String _selectedPayment = 'UPI';
+  String _selectedPayment = 'Cash';
+  List<String> _paymentOptions = const ['Cash'];
+  bool _isPaymentOptionsLoading = false;
   bool _isLoggingOut = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadPaymentMethodOptions(showError: false);
   }
 
   Future<void> _loadSettings() async {
@@ -49,6 +54,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveBoolSetting(String key, bool value) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
+  }
+
+  Future<void> _loadPaymentMethodOptions({
+    bool forceRefresh = false,
+    bool showError = true,
+  }) async {
+    setState(() => _isPaymentOptionsLoading = true);
+
+    try {
+      final methods = await getIt<GetPaymentMethodsUseCase>().call(
+        forceRefresh: forceRefresh,
+      );
+
+      if (!mounted) return;
+
+      final options = methods
+          .map((method) => method.name.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+
+      setState(() {
+        _isPaymentOptionsLoading = false;
+
+        if (options.isNotEmpty) {
+          _paymentOptions = options;
+          if (!_paymentOptions.contains(_selectedPayment)) {
+            _selectedPayment = _paymentOptions.first;
+          }
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() => _isPaymentOptionsLoading = false);
+      if (showError) {
+        _showMessage('Unable to load payment methods');
+      }
+    }
   }
 
   void _hapticTap() {
@@ -202,15 +246,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const Color pageBackground = Color(0xFFF2F4F7);
     const Color brand = Color(0xFFFE8C00);
 
     return Scaffold(
-      backgroundColor: pageBackground,
+      backgroundColor: AppTheme.scaffoldPageBackground,
       appBar: AppBar(
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: pageBackground,
+        backgroundColor: AppTheme.scaffoldPageBackground,
         foregroundColor: const Color(0xFF202124),
         title: const Text(
           'Settings',
@@ -317,13 +360,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.payments_outlined,
                   title: 'Payment Method',
                   subtitle: 'Default payment preference',
-                  valueLabel: _selectedPayment,
-                  onTap: () {
+                  valueLabel: _isPaymentOptionsLoading ? 'Loading...' : _selectedPayment,
+                  onTap: () async {
                     _hapticTap();
+                    await _loadPaymentMethodOptions(showError: false);
+                    if (!mounted) return;
+
+                    if (_paymentOptions.isEmpty) {
+                      _showMessage('No payment methods available right now');
+                      return;
+                    }
+
                     _showSelectionSheet(
                       title: 'Payment Preferences',
                       icon: Icons.payments_outlined,
-                      options: const ['UPI', 'Card', 'Cash', 'Wallet'],
+                      options: _paymentOptions,
                       selected: _selectedPayment,
                       onSelected: (value) => _selectedPayment = value,
                     );

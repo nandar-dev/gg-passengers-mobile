@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/routing/route_names.dart';
 import '../../shared/widgets/app_message.dart';
@@ -14,6 +15,10 @@ class ProfileEditScreen extends StatefulWidget {
 }
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
+  static const String _profileNameKey = 'profile.full_name';
+  static const String _profileEmailKey = 'profile.email';
+  static const String _profilePhoneKey = 'profile.phone';
+
   final TextEditingController _nameController = TextEditingController(text: 'John Doe');
   final TextEditingController _emailController = TextEditingController(text: 'john@example.com');
   final TextEditingController _phoneController = TextEditingController(text: '09123123123');
@@ -22,6 +27,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String? _emailError;
   String? _phoneError;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
 
   @override
   void dispose() {
@@ -69,7 +80,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     setState(() => _isSaving = true);
 
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_profileNameKey, _nameController.text.trim());
+    await prefs.setString(_profileEmailKey, _emailController.text.trim());
+    await prefs.setString(_profilePhoneKey, _phoneController.text.trim());
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
 
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -80,6 +96,25 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       return;
     }
     context.go(RouteNames.settings);
+  }
+
+  Future<void> _loadProfile() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? name = prefs.getString(_profileNameKey);
+    final String? email = prefs.getString(_profileEmailKey);
+    final String? phone = prefs.getString(_profilePhoneKey);
+
+    if (!mounted) return;
+
+    if (name != null && name.trim().isNotEmpty) {
+      _nameController.text = name;
+    }
+    if (email != null && email.trim().isNotEmpty) {
+      _emailController.text = email;
+    }
+    if (phone != null && phone.trim().isNotEmpty) {
+      _phoneController.text = phone;
+    }
   }
 
   @override

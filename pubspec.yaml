@@ -42,6 +42,7 @@ dependencies:
   retrofit: ^4.7.2
   json_annotation: ^4.9.0
   flutter_dotenv: ^5.2.1
+  cached_network_image: ^3.3.0
 
   # Dependency Injection
   get_it: ^7.6.0

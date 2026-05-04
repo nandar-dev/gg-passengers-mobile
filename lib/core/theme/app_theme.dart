@@ -11,6 +11,7 @@ class AppTheme {
 
   static const Color background = Color(0xFFFAFAFA);
   static const Color surface = Color(0xFFFFFFFF);
+  static const Color scaffoldPageBackground = Color(0xFFF4F5F7);
   static const Color error = Color(0xFFE53935);
   static const Color warning = Color(0xFFFFA500);
   static const Color success = Color(0xFF00A85C);

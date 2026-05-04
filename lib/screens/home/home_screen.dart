@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/services/domain/entities/service_entity.dart';
+import '../../features/services/domain/use_cases/get_services_use_case.dart';
+import '../../core/di/service_locator.dart';
+import '../../core/theme/app_theme.dart';
+import '../../features/booking/presentation/models/booking_args.dart';
 import '../profile/settings_screen.dart';
 import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/bottom_nav.dart';
@@ -24,22 +27,44 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _locationChoiceKey = 'home.location_choice';
   static const String _choiceAllowed = 'allowed';
   static const String _choiceMaybeLater = 'maybe_later';
+  static const String _profileNameKey = 'profile.full_name';
 
   int _currentIndex = 0;
+  List<AppService> _services = [];
+  bool _isLoadingServices = true;
   bool _didScheduleInitialPrompt = false;
   bool _isLocationChoiceLoaded = false;
   bool _hasShownInitialPrompt = false;
   bool _isLocationPromptOpen = false;
-  LatLng _mapCenter = const LatLng(12.9716, 77.5946);
   String? _savedLocationChoice;
   String _locationStatusLabel = 'Checking location...';
+  String _passengerName = 'there';
+  String _greeting = 'Good day';
 
   @override
   void initState() {
     super.initState();
     _loadSavedLocationChoice();
     _refreshLocationStatus();
-    _syncLocationToMapIfAllowed();
+    _loadServices();
+    _loadProfileName();
+    _updateGreeting();
+  }
+
+  Future<void> _loadServices() async {
+    try {
+      final services = await getIt<GetServicesUseCase>().call();
+      if (!mounted) return;
+      setState(() {
+        _services = services;
+        _isLoadingServices = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingServices = false;
+      });
+    }
   }
 
   @override
@@ -67,6 +92,30 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _loadProfileName() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? name = prefs.getString(_profileNameKey);
+    if (!mounted) return;
+    setState(() {
+      _passengerName = (name == null || name.trim().isEmpty)
+          ? 'there'
+          : name.trim();
+    });
+  }
+
+  void _updateGreeting() {
+    final int hour = DateTime.now().hour;
+    String greeting;
+    if (hour < 12) {
+      greeting = 'Good morning';
+    } else if (hour < 17) {
+      greeting = 'Good afternoon';
+    } else {
+      greeting = 'Good evening';
+    }
+    _greeting = greeting;
+  }
+
   Future<void> _refreshLocationStatus() async {
     final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     final LocationPermission permission = await Geolocator.checkPermission();
@@ -86,26 +135,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {
       _locationStatusLabel = status;
-    });
-  }
-
-  Future<void> _syncLocationToMapIfAllowed() async {
-    final LocationPermission permission = await Geolocator.checkPermission();
-    final bool isGranted =
-        permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
-    if (!isGranted) return;
-
-    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    final Position position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _mapCenter = LatLng(position.latitude, position.longitude);
     });
   }
 
@@ -215,7 +244,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (granted) {
       await _saveLocationChoice(_choiceAllowed);
       await _refreshLocationStatus();
-      _syncLocationToMapIfAllowed();
       return true;
     }
 
@@ -239,7 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (alreadyGranted) {
       await _saveLocationChoice(_choiceAllowed);
       await _refreshLocationStatus();
-      _syncLocationToMapIfAllowed();
+      // _syncLocationToMapIfAllowed();
       return true;
     }
 
@@ -260,22 +288,28 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _onWhereToTap() async {
     final bool hasAccess = await _ensureLocationAccess();
     if (!mounted) return;
-
-    if (hasAccess) {
-      // Do not await the map sync to avoid delaying the navigation
-      _syncLocationToMapIfAllowed();
-    }
-
-    context.pushNamed('searchLocation');
+    if (!hasAccess) return;
+    final String? serviceId = _resolveDefaultServiceId();
+    context.pushNamed(
+      'searchLocation',
+      extra: SearchLocationArgs(serviceId: serviceId ?? ''),
+    );
   }
 
-  Future<void> _onRecenterTap() async {
-    final bool hasAccess = await _ensureLocationAccess();
-    if (!hasAccess || !mounted) return;
+  String? _resolveDefaultServiceId() {
+    if (_services.isEmpty) return null;
+    final taxi = _services.firstWhere(
+      (service) => service.nameEn.toLowerCase().contains('taxi'),
+      orElse: () => _services.first,
+    );
+    return taxi.id;
+  }
 
-    await _syncLocationToMapIfAllowed();
-    if (!mounted) return;
-    AppMessage.success(context, 'Map centered to your current location');
+  void _onServiceTap(AppService service) {
+    context.pushNamed(
+      'searchLocation',
+      extra: SearchLocationArgs(serviceId: service.id),
+    );
   }
 
   @override
@@ -283,16 +317,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<Widget> tabs = [
       _HomeTab(
         onWhereToTap: _onWhereToTap,
-        onRecenterTap: _onRecenterTap,
+        onServiceTap: _onServiceTap,
         locationStatusLabel: _locationStatusLabel,
-        mapCenter: _mapCenter,
+        passengerName: _passengerName,
+        greeting: _greeting,
+        services: _services,
+        isLoadingServices: _isLoadingServices,
       ),
       const _RidesTab(),
       const _AccountTab(),
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F5F7),
+      backgroundColor: AppTheme.scaffoldPageBackground,
       body: SafeArea(child: tabs[_currentIndex]),
       bottomNavigationBar: BottomNav(
         currentIndex: _currentIndex,
@@ -302,210 +339,251 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _HomeTab extends StatelessWidget {
+class _HomeTab extends StatefulWidget {
   final VoidCallback onWhereToTap;
-  final VoidCallback onRecenterTap;
+  final void Function(AppService service) onServiceTap;
   final String locationStatusLabel;
-  final LatLng mapCenter;
+  final String passengerName;
+  final String greeting;
+  final List<AppService> services;
+  final bool isLoadingServices;
 
   const _HomeTab({
     required this.onWhereToTap,
-    required this.onRecenterTap,
+    required this.onServiceTap,
     required this.locationStatusLabel,
-    required this.mapCenter,
+    required this.passengerName,
+    required this.greeting,
+    required this.services,
+    required this.isLoadingServices,
   });
 
   @override
-  Widget build(BuildContext context) {
-    const List<String> offers = [
-      'Flat 30% off on first 3 rides',
-      'Weekend bike rides from Rs. 49',
-      'Schedule rides and save up to 20%',
-    ];
+  State<_HomeTab> createState() => _HomeTabState();
+}
 
+class _HomeTabState extends State<_HomeTab> {
+  @override
+  Widget build(BuildContext context) {
     const List<String> rideTypes = ['Car', 'Bike', 'Schedule', 'Carrier Send'];
 
-    return Stack(
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
       children: [
-        Positioned.fill(
-          child: FlutterMap(
-            key: ValueKey<String>(
-              'map-${mapCenter.latitude.toStringAsFixed(5)}-${mapCenter.longitude.toStringAsFixed(5)}',
-            ),
-            options: MapOptions(initialCenter: mapCenter, initialZoom: 13.4),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.gg.taxi',
-              ),
-              const MarkerLayer(
-                markers: [
-                  Marker(
-                    point: LatLng(12.9688, 77.6010),
-                    width: 36,
-                    height: 36,
-                    child: _MapVehicle(icon: Icons.directions_car_rounded),
-                  ),
-                  Marker(
-                    point: LatLng(12.9752, 77.5886),
-                    width: 36,
-                    height: 36,
-                    child: _MapVehicle(icon: Icons.two_wheeler_rounded),
-                  ),
-                  Marker(
-                    point: LatLng(12.9802, 77.5951),
-                    width: 36,
-                    height: 36,
-                    child: _MapVehicle(icon: Icons.directions_car_rounded),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: 16,
-          right: 16,
-          child: Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            elevation: 2,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: onRecenterTap,
-              child: const Padding(
-                padding: EdgeInsets.all(10),
-                child: Icon(
-                  Icons.my_location_rounded,
-                  color: Color(0xFF202124),
-                ),
-              ),
-            ),
-          ),
-        ),
-        DraggableScrollableSheet(
-          initialChildSize: 0.33,
-          minChildSize: 0.22,
-          maxChildSize: 0.95,
-          snap: true,
-          snapSizes: const [0.33, 0.95],
-          builder: (context, controller) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x22000000),
-                    blurRadius: 18,
-                    offset: Offset(0, -3),
-                  ),
-                ],
-              ),
-              child: ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Center(
-                    child: SizedBox(
-                      width: 44,
-                      child: Divider(thickness: 4, color: Color(0xFFD7D7D7)),
+                  Text(
+                    '${widget.greeting}, ${widget.passengerName}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5F6368),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Offers',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 70,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: offers.length,
-                      separatorBuilder: (_, index) => const SizedBox(width: 10),
-                      itemBuilder: (_, index) => Container(
-                        width: 250,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFFBD59), Color(0xFFFE8C00)],
-                          ),
-                        ),
-                        child: Text(
-                          offers[index],
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Ride Type',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: rideTypes
-                        .map(
-                          (type) => Chip(
-                            label: Text(type),
-                            backgroundColor: const Color(0xFFFFF3E2),
-                            side: const BorderSide(color: Color(0xFFFFD9AA)),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: onWhereToTap,
-                    child: const AbsorbPointer(
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Where to',
-                          prefixIcon: Icon(Icons.search_rounded),
-                          filled: true,
-                          fillColor: Color(0xFFFAFAFA),
-                          border: OutlineInputBorder(
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Saved Addresses',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.home_rounded),
-                    title: Text('Home'),
-                    subtitle: Text('MG Road, Bangalore'),
-                  ),
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.work_rounded),
-                    title: Text('Office'),
-                    subtitle: Text('Manyata Tech Park, Bangalore'),
                   ),
                 ],
               ),
-            );
-          },
+            ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1DF),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFFFD6A6)),
+              ),
+              child: const Icon(Icons.person_rounded, color: Color(0xFFFE8C00)),
+            ),
+          ],
         ),
+        const SizedBox(height: 12),
+        const Text(
+          'Where are you going?',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Best routes and trusted drivers, in minutes.',
+          style: TextStyle(fontSize: 12, color: Color(0xFF7A8087)),
+        ),
+        const SizedBox(height: 12),
+        Material(
+          color: Colors.white,
+          elevation: 4,
+          shadowColor: const Color(0x22000000),
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: widget.onWhereToTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: const [
+                  Icon(
+                    Icons.search_rounded,
+                    color: Color(0xFF202124),
+                    size: 24,
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Where to?',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF202124),
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.tune_rounded, color: Color(0xFF8A8D91), size: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+        _buildSectionDivider(),
+        const SizedBox(height: 18),
+        const Text(
+          'Services',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 12),
+        if (widget.isLoadingServices && widget.services.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else
+          SizedBox(
+            height: 100,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: widget.services.isNotEmpty
+                  ? widget.services.length
+                  : rideTypes.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final bool hasServices = widget.services.isNotEmpty;
+                final AppService? service = hasServices
+                    ? widget.services[index]
+                    : null;
+                final String label = hasServices
+                    ? service!.nameEn
+                    : rideTypes[index];
+                final IconData icon = _getServiceIcon(label);
+
+                return Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  elevation: 2,
+                  shadowColor: const Color(0x14000000),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: service == null ? null : () => widget.onServiceTap(service),
+                    child: SizedBox(
+                      width: 86,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF3E2),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: const Color(0xFFFFD9AA)),
+                            ),
+                            child: Icon(
+                              icon,
+                              color: const Color(0xFFFE8C00),
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 16),
+        _buildSectionDivider(),
+        const SizedBox(height: 18),
+        const Text(
+          'Saved Places',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        _buildSavedPlaceTile(Icons.home_rounded, 'Home', 'MG Road, Bangalore'),
+        _buildSavedPlaceTile(
+          Icons.work_rounded,
+          'Office',
+          'Manyata Tech Park, Bangalore',
+        ),
+        const SizedBox(height: 100),
       ],
     );
+  }
+
+  Widget _buildSavedPlaceTile(IconData icon, String title, String subtitle) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.black87),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600])),
+      trailing: const Icon(Icons.navigate_next, color: Colors.grey),
+    );
+  }
+
+  Widget _buildSectionDivider() {
+    return Container(
+      height: 1,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F1F3),
+        borderRadius: BorderRadius.circular(100),
+      ),
+    );
+  }
+
+  IconData _getServiceIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'car':
+      case 'taxi':
+        return Icons.directions_car_rounded;
+      case 'bike':
+        return Icons.two_wheeler_rounded;
+      case 'delivery':
+        return Icons.local_shipping_rounded;
+      case 'schedule':
+        return Icons.calendar_month_rounded;
+      default:
+        return Icons.more_horiz_rounded;
+    }
   }
 }
 
@@ -618,31 +696,5 @@ class _AccountTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const SettingsScreen();
-  }
-}
-
-class _MapVehicle extends StatelessWidget {
-  final IconData icon;
-
-  const _MapVehicle({required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 8,
-            offset: Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Icon(icon, size: 18, color: const Color(0xFFFE8C00)),
-    );
   }
 }
