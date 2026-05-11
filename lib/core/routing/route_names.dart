@@ -20,4 +20,5 @@ class RouteNames {
   static const String support = '/support';
   static const String about = '/about';
   static const String settings = '/settings';
+  static const String savedPlaces = '/saved-places';
 }

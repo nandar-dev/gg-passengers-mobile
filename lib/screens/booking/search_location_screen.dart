@@ -48,6 +48,9 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
   Timer? _searchDebounce;
   List<_LocationSuggestion> _recentSuggestions = const [];
   List<_LocationSuggestion> _remoteSuggestions = const [];
+  bool _showWaypoint = false;
+  String _lastSearchQuery = '';
+  int _searchSequence = 0;
 
   @override
   void initState() {
@@ -111,7 +114,7 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
       _isWaypointFocused = focused;
     });
 
-    if (focused) {
+    if (focused && _showWaypoint) {
       _activeField = _RouteField.waypoint;
       _scheduleSearch(_waypointController.text);
     }
@@ -155,11 +158,25 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
 
   void _scheduleSearch(String value) {
     _searchDebounce?.cancel();
-    if (value.trim().isEmpty) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
       setState(() {
         _remoteSuggestions = const [];
         _isSearching = false;
       });
+      return;
+    }
+
+    if (trimmed.length < 2) {
+      setState(() {
+        _remoteSuggestions = const [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    if (trimmed.toLowerCase() == _lastSearchQuery.toLowerCase() &&
+        _remoteSuggestions.isNotEmpty) {
       return;
     }
 
@@ -518,7 +535,10 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
 
   Future<void> _searchSuggestions(String query) async {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || trimmed.length < 2) return;
+
+    _lastSearchQuery = trimmed;
+    final int requestId = ++_searchSequence;
 
     setState(() {
       _isSearching = true;
@@ -531,6 +551,8 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
         lng: _currentPosition?.longitude,
       );
 
+      if (requestId != _searchSequence) return;
+
       final items = results.map(_LocationSuggestion.fromGeocoded).toList();
       if (mounted) {
         setState(() {
@@ -539,6 +561,7 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
         });
       }
     } catch (_) {
+      if (requestId != _searchSequence) return;
       if (mounted) {
         setState(() {
           _remoteSuggestions = const [];
@@ -546,6 +569,34 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
         });
       }
     }
+  }
+
+  void _showWaypointField() {
+    if (_showWaypoint) return;
+    setState(() {
+      _showWaypoint = true;
+      _activeField = _RouteField.waypoint;
+    });
+    _waypointFocusNode.requestFocus();
+  }
+
+  void _hideWaypointField() {
+    if (!_showWaypoint) return;
+    setState(() {
+      _showWaypoint = false;
+      _waypointController.clear();
+      if (_activeField == _RouteField.waypoint) {
+        _activeField = _RouteField.dropoff;
+      }
+    });
+    _scheduleSearch(_activeController.text);
+  }
+
+  bool _matchesQuery(_LocationSuggestion suggestion, String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    return suggestion.title.toLowerCase().contains(normalized) ||
+        suggestion.subtitle.toLowerCase().contains(normalized);
   }
 
   _LocationSuggestion? _currentLocationSuggestion() {
@@ -594,10 +645,22 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
     final currentSuggestion = _activeField == _RouteField.pickup
       ? _currentLocationSuggestion()
       : null;
-    final List<_LocationSuggestion> displaySuggestions = [
-      if (currentSuggestion != null) currentSuggestion,
-      ...suggestions,
-    ];
+    final List<_LocationSuggestion> displaySuggestions = query.isEmpty
+        ? [
+            if (currentSuggestion != null) currentSuggestion,
+            ...suggestions,
+          ]
+        : [
+            if (currentSuggestion != null) currentSuggestion,
+            ..._recentSuggestions.where((item) => _matchesQuery(item, query)),
+            ...suggestions,
+          ]
+            .fold<List<_LocationSuggestion>>([], (items, suggestion) {
+            if (items.any((existing) => existing.key == suggestion.key)) {
+              return items;
+            }
+            return [...items, suggestion];
+          });
 
     return Scaffold(
       backgroundColor: AppTheme.scaffoldPageBackground,
@@ -642,11 +705,14 @@ class _SearchLocationScreenState extends State<SearchLocationScreen> {
                     pickupFocusNode: _pickupFocusNode,
                     waypointFocusNode: _waypointFocusNode,
                     dropoffFocusNode: _dropoffFocusNode,
+                    showWaypoint: _showWaypoint,
                     onSwap: _swapLocations,
                     onUseCurrentLocation: _useCurrentLocationForPickup,
+                    onAddWaypoint: _showWaypointField,
+                    onRemoveWaypoint: _hideWaypointField,
                     onPickupChanged: (value) => _scheduleSearch(value),
                     onWaypointChanged: (value) {
-                      if (_activeField == _RouteField.waypoint) {
+                      if (_activeField == _RouteField.waypoint && _showWaypoint) {
                         _scheduleSearch(value);
                       }
                     },
@@ -751,8 +817,11 @@ class _RouteInputCard extends StatelessWidget {
     required this.pickupFocusNode,
     required this.waypointFocusNode,
     required this.dropoffFocusNode,
+    required this.showWaypoint,
     this.onSwap,
     this.onUseCurrentLocation,
+    this.onAddWaypoint,
+    this.onRemoveWaypoint,
     this.onPickupChanged,
     this.onWaypointChanged,
     this.onDropoffChanged,
@@ -764,8 +833,11 @@ class _RouteInputCard extends StatelessWidget {
   final FocusNode pickupFocusNode;
   final FocusNode waypointFocusNode;
   final FocusNode dropoffFocusNode;
+  final bool showWaypoint;
   final VoidCallback? onSwap;
   final VoidCallback? onUseCurrentLocation;
+  final VoidCallback? onAddWaypoint;
+  final VoidCallback? onRemoveWaypoint;
   final ValueChanged<String>? onPickupChanged;
   final ValueChanged<String>? onWaypointChanged;
   final ValueChanged<String>? onDropoffChanged;
@@ -862,28 +934,56 @@ class _RouteInputCard extends StatelessWidget {
                   onChanged: onPickupChanged,
                 ),
                 const SizedBox(height: 10),
-                _routeField(
-                  context: context,
-                  controller: waypointController,
-                  focusNode: waypointFocusNode,
-                  hintText: 'Waypoint (optional)',
-                  prefixIcon: Icons.pin_drop_outlined,
-                  fillColor: const Color(0xFFFFFCF8),
-                  suffixIcon: waypointController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, color: Colors.grey),
-                          onPressed: () {
-                            waypointController.clear();
-                            onWaypointChanged?.call('');
-                          },
-                        )
-                      : const Icon(
-                          Icons.add_circle_outline,
-                          size: 20,
-                          color: AppTheme.primaryColor,
-                        ),
-                  onChanged: onWaypointChanged,
-                ),
+                if (showWaypoint) ...[
+                  _routeField(
+                    context: context,
+                    controller: waypointController,
+                    focusNode: waypointFocusNode,
+                    hintText: 'Waypoint (optional)',
+                    prefixIcon: Icons.pin_drop_outlined,
+                    fillColor: const Color(0xFFFFFCF8),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      onPressed: onRemoveWaypoint,
+                    ),
+                    onChanged: onWaypointChanged,
+                  ),
+                  const SizedBox(height: 10),
+                ] else
+                  InkWell(
+                    onTap: onAddWaypoint,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFCF8),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFFE5C2)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.add_circle_outline,
+                            color: AppTheme.primaryColor,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Add a stop',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 10),
                 _routeField(
                   context: context,

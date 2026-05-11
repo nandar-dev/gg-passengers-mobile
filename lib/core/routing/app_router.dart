@@ -22,6 +22,7 @@ import '../../screens/ride/ride_history_screen.dart';
 import '../../screens/ride/ride_review_screen.dart';
 import '../../screens/ride/ride_tracking_screen.dart';
 import '../../screens/splash_screen.dart';
+import '../../features/saved_places/presentation/screens/saved_places_screen.dart';
 import '../../features/booking/presentation/models/booking_args.dart';
 import 'route_names.dart';
 
@@ -247,6 +248,13 @@ final goRouter = GoRouter(
       name: 'settings',
       builder: (context, state) {
         return const SettingsScreen();
+      },
+    ),
+    GoRoute(
+      path: RouteNames.savedPlaces,
+      name: 'savedPlaces',
+      builder: (context, state) {
+        return const SavedPlacesScreen();
       },
     ),
   ],

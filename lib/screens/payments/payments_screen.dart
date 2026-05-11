@@ -5,6 +5,7 @@ import '../../core/di/service_locator.dart';
 import '../../features/payments/domain/entities/payment_method.dart';
 import '../../features/payments/domain/use_cases/get_payment_methods_use_case.dart';
 import '../../features/payments/presentation/payment_method_image_widget.dart';
+import '../../shared/widgets/skeleton.dart';
 
 class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
@@ -86,9 +87,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
+              const SkeletonList(
+                itemCount: 5,
+                padding: EdgeInsets.symmetric(vertical: 4),
               )
             else if (_error != null && _paymentMethods.isEmpty)
               Padding(

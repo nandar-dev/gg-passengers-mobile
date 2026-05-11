@@ -60,6 +60,34 @@ import 'package:gg/features/payments/domain/repositories/payment_methods_reposit
     as _i319;
 import 'package:gg/features/payments/domain/use_cases/get_payment_methods_use_case.dart'
     as _i387;
+import 'package:gg/features/profile/data/data_sources/passenger_profile_remote_data_source.dart'
+    as _i382;
+import 'package:gg/features/profile/data/repositories/passenger_profile_repository_impl.dart'
+    as _i629;
+import 'package:gg/features/profile/domain/repositories/passenger_profile_repository.dart'
+    as _i849;
+import 'package:gg/features/profile/domain/use_cases/get_passenger_profile_use_case.dart'
+    as _i315;
+import 'package:gg/features/profile/domain/use_cases/update_passenger_profile_use_case.dart'
+    as _i966;
+import 'package:gg/features/saved_places/data/data_sources/saved_places_remote_data_source.dart'
+    as _i855;
+import 'package:gg/features/saved_places/data/repositories/saved_places_repository_impl.dart'
+    as _i332;
+import 'package:gg/features/saved_places/domain/repositories/saved_places_repository.dart'
+    as _i631;
+import 'package:gg/features/saved_places/domain/use_cases/create_saved_place_use_case.dart'
+    as _i539;
+import 'package:gg/features/saved_places/domain/use_cases/delete_saved_place_use_case.dart'
+    as _i827;
+import 'package:gg/features/saved_places/domain/use_cases/get_saved_place_use_case.dart'
+    as _i338;
+import 'package:gg/features/saved_places/domain/use_cases/get_saved_places_use_case.dart'
+    as _i539;
+import 'package:gg/features/saved_places/domain/use_cases/set_default_saved_place_use_case.dart'
+    as _i43;
+import 'package:gg/features/saved_places/domain/use_cases/update_saved_place_use_case.dart'
+    as _i1013;
 import 'package:gg/features/services/data/data_sources/services_local_data_source.dart'
     as _i757;
 import 'package:gg/features/services/data/data_sources/services_remote_data_source.dart'
@@ -118,6 +146,12 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i415.PaymentMethodsRemoteDataSource>(
       () => _i415.PaymentMethodsRemoteDataSource(gh<_i361.Dio>()),
     );
+    gh.lazySingleton<_i382.PassengerProfileRemoteDataSource>(
+      () => _i382.PassengerProfileRemoteDataSource(gh<_i361.Dio>()),
+    );
+    gh.lazySingleton<_i855.SavedPlacesRemoteDataSource>(
+      () => _i855.SavedPlacesRemoteDataSource(gh<_i361.Dio>()),
+    );
     gh.lazySingleton<_i676.ServicesRemoteDataSource>(
       () => _i676.ServicesRemoteDataSource(gh<_i361.Dio>()),
     );
@@ -125,6 +159,21 @@ extension GetItInjectableX on _i174.GetIt {
       () => _i578.ServicesRepositoryImpl(
         gh<_i676.ServicesRemoteDataSource>(),
         gh<_i757.ServicesLocalDataSource>(),
+      ),
+    );
+    gh.lazySingleton<_i849.PassengerProfileRepository>(
+      () => _i629.PassengerProfileRepositoryImpl(
+        gh<_i382.PassengerProfileRemoteDataSource>(),
+      ),
+    );
+    gh.lazySingleton<_i315.GetPassengerProfileUseCase>(
+      () => _i315.GetPassengerProfileUseCase(
+        gh<_i849.PassengerProfileRepository>(),
+      ),
+    );
+    gh.lazySingleton<_i966.UpdatePassengerProfileUseCase>(
+      () => _i966.UpdatePassengerProfileUseCase(
+        gh<_i849.PassengerProfileRepository>(),
       ),
     );
     gh.lazySingleton<_i1047.AuthRemoteDataSource>(
@@ -167,6 +216,29 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i330.VerifyPassengerOtpUseCase>(
       () => _i330.VerifyPassengerOtpUseCase(gh<_i529.AuthRepository>()),
+    );
+    gh.lazySingleton<_i631.SavedPlacesRepository>(
+      () => _i332.SavedPlacesRepositoryImpl(
+        gh<_i855.SavedPlacesRemoteDataSource>(),
+      ),
+    );
+    gh.lazySingleton<_i539.CreateSavedPlaceUseCase>(
+      () => _i539.CreateSavedPlaceUseCase(gh<_i631.SavedPlacesRepository>()),
+    );
+    gh.lazySingleton<_i827.DeleteSavedPlaceUseCase>(
+      () => _i827.DeleteSavedPlaceUseCase(gh<_i631.SavedPlacesRepository>()),
+    );
+    gh.lazySingleton<_i338.GetSavedPlaceUseCase>(
+      () => _i338.GetSavedPlaceUseCase(gh<_i631.SavedPlacesRepository>()),
+    );
+    gh.lazySingleton<_i539.GetSavedPlacesUseCase>(
+      () => _i539.GetSavedPlacesUseCase(gh<_i631.SavedPlacesRepository>()),
+    );
+    gh.lazySingleton<_i43.SetDefaultSavedPlaceUseCase>(
+      () => _i43.SetDefaultSavedPlaceUseCase(gh<_i631.SavedPlacesRepository>()),
+    );
+    gh.lazySingleton<_i1013.UpdateSavedPlaceUseCase>(
+      () => _i1013.UpdateSavedPlaceUseCase(gh<_i631.SavedPlacesRepository>()),
     );
     gh.lazySingleton<_i280.BookingRepository>(
       () => _i699.BookingRepositoryImpl(gh<_i615.BookingRemoteDataSource>()),

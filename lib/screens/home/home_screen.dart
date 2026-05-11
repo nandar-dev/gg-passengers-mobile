@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:gg/core/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,11 +9,18 @@ import '../../features/services/domain/use_cases/get_services_use_case.dart';
 import '../../core/di/service_locator.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/booking/presentation/models/booking_args.dart';
+import '../../features/profile/domain/use_cases/get_passenger_profile_use_case.dart';
+import '../../features/saved_places/domain/entities/saved_place.dart';
+import '../../features/saved_places/domain/use_cases/get_saved_places_use_case.dart';
 import '../profile/settings_screen.dart';
 import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/secondary_button.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+import '../../core/providers/profile_notifier.dart';
+import '../../shared/widgets/skeleton.dart';
 
 enum _LocationChoice { allowed, maybeLater }
 
@@ -40,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _locationStatusLabel = 'Checking location...';
   String _passengerName = 'there';
   String _greeting = 'Good day';
+  String? _avatarUrl;
+  List<SavedPlace> _savedPlaces = const [];
+  bool _isSavedPlacesLoading = true;
 
   @override
   void initState() {
@@ -48,7 +59,42 @@ class _HomeScreenState extends State<HomeScreen> {
     _refreshLocationStatus();
     _loadServices();
     _loadProfileName();
+    _loadSavedPlaces();
     _updateGreeting();
+    getIt<ProfileNotifier>().addListener(_onProfileChanged);
+  }
+
+  @override
+  void dispose() {
+    getIt<ProfileNotifier>().removeListener(_onProfileChanged);
+    super.dispose();
+  }
+
+  void _onProfileChanged() {
+    if (!mounted) return;
+    final notifier = getIt<ProfileNotifier>();
+    setState(() {
+      if (notifier.name.isNotEmpty) _passengerName = notifier.name;
+      _avatarUrl = notifier.avatarUrl;
+    });
+  }
+
+  Future<void> _loadSavedPlaces({bool forceRefresh = false}) async {
+    try {
+      final places = await getIt<GetSavedPlacesUseCase>().call(
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _savedPlaces = places;
+        _isSavedPlacesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSavedPlacesLoading = false;
+      });
+    }
   }
 
   Future<void> _loadServices() async {
@@ -93,14 +139,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadProfileName() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String? name = prefs.getString(_profileNameKey);
-    if (!mounted) return;
-    setState(() {
-      _passengerName = (name == null || name.trim().isEmpty)
-          ? 'there'
-          : name.trim();
-    });
+    try {
+      final profile = await getIt<GetPassengerProfileUseCase>().call();
+      if (!mounted) return;
+
+      final name = profile.name.trim();
+      setState(() {
+        _passengerName = name.isEmpty ? 'there' : name;
+        _avatarUrl = profile.avatarUrl;
+      });
+
+      getIt<ProfileNotifier>().update(
+        name: _passengerName,
+        email: profile.email.trim(),
+        avatarUrl: profile.avatarUrl,
+      );
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_profileNameKey, _passengerName);
+    } catch (_) {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? name = prefs.getString(_profileNameKey);
+      if (!mounted) return;
+      setState(() {
+        _passengerName = (name == null || name.trim().isEmpty)
+            ? 'there'
+            : name.trim();
+      });
+    }
   }
 
   void _updateGreeting() {
@@ -323,6 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
         greeting: _greeting,
         services: _services,
         isLoadingServices: _isLoadingServices,
+        savedPlaces: _savedPlaces,
+        isSavedPlacesLoading: _isSavedPlacesLoading,
+        avatarUrl: _avatarUrl,
       ),
       const _RidesTab(),
       const _AccountTab(),
@@ -333,7 +402,12 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(child: tabs[_currentIndex]),
       bottomNavigationBar: BottomNav(
         currentIndex: _currentIndex,
-        onChanged: (index) => setState(() => _currentIndex = index),
+        onChanged: (index) {
+          setState(() => _currentIndex = index);
+          if (index == 0) {
+            _loadSavedPlaces(forceRefresh: true);
+          }
+        },
       ),
     );
   }
@@ -347,6 +421,9 @@ class _HomeTab extends StatefulWidget {
   final String greeting;
   final List<AppService> services;
   final bool isLoadingServices;
+  final List<SavedPlace> savedPlaces;
+  final bool isSavedPlacesLoading;
+  final String? avatarUrl;
 
   const _HomeTab({
     required this.onWhereToTap,
@@ -356,6 +433,9 @@ class _HomeTab extends StatefulWidget {
     required this.greeting,
     required this.services,
     required this.isLoadingServices,
+    required this.savedPlaces,
+    required this.isSavedPlacesLoading,
+    this.avatarUrl,
   });
 
   @override
@@ -363,6 +443,12 @@ class _HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<_HomeTab> {
+  final List<_PopularPlace> _popularPlaces = const [
+    _PopularPlace(Icons.local_airport_rounded, 'Airport', 'Nearest terminal'),
+    _PopularPlace(Icons.shopping_bag_rounded, 'Shopping Mall', 'Popular nearby mall'),
+    _PopularPlace(Icons.train_rounded, 'Railway Station', 'Main city station'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     const List<String> rideTypes = ['Car', 'Bike', 'Schedule', 'Carrier Send'];
@@ -387,15 +473,35 @@ class _HomeTabState extends State<_HomeTab> {
                 ],
               ),
             ),
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1DF),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFFD6A6)),
+            GestureDetector(
+              onTap: () => context.push(RouteNames.profileEdit),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF1DF),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFFFD6A6)),
+                ),
+                child: ClipOval(
+                  child: widget.avatarUrl != null && widget.avatarUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: widget.avatarUrl!,
+                          width: 40,
+                          height: 40,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => const Icon(
+                            Icons.person_rounded,
+                            color: Color(0xFFFE8C00),
+                          ),
+                          errorWidget: (_, __, ___) => const Icon(
+                            Icons.person_rounded,
+                            color: Color(0xFFFE8C00),
+                          ),
+                        )
+                      : const Icon(Icons.person_rounded, color: Color(0xFFFE8C00)),
+                ),
               ),
-              child: const Icon(Icons.person_rounded, color: Color(0xFFFE8C00)),
             ),
           ],
         ),
@@ -454,12 +560,7 @@ class _HomeTabState extends State<_HomeTab> {
         ),
         const SizedBox(height: 12),
         if (widget.isLoadingServices && widget.services.isEmpty)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(),
-            ),
-          )
+          const SkeletonServiceRow(itemCount: 4)
         else
           SizedBox(
             height: 100,
@@ -532,18 +633,53 @@ class _HomeTabState extends State<_HomeTab> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
-        _buildSavedPlaceTile(Icons.home_rounded, 'Home', 'MG Road, Bangalore'),
-        _buildSavedPlaceTile(
-          Icons.work_rounded,
-          'Office',
-          'Manyata Tech Park, Bangalore',
-        ),
+        if (widget.isSavedPlacesLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: SkeletonList(itemCount: 3),
+          )
+        else if (widget.savedPlaces.isEmpty)
+          _buildPopularPlaces()
+        else
+          ...widget.savedPlaces.map(_buildSavedPlaceTileFromData),
         const SizedBox(height: 100),
       ],
     );
   }
 
-  Widget _buildSavedPlaceTile(IconData icon, String title, String subtitle) {
+  Widget _buildPopularPlaces() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEAECEF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ..._popularPlaces.map(
+            (place) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(place.icon, color: Colors.black87),
+              ),
+              title: Text(place.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(place.subtitle, style: TextStyle(color: Colors.grey[600])),
+              trailing: const Icon(Icons.navigate_next, color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavedPlaceTileFromData(SavedPlace place) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Container(
@@ -552,12 +688,24 @@ class _HomeTabState extends State<_HomeTab> {
           color: Colors.grey[100],
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: Colors.black87),
+        child: Icon(_iconForLabel(place.label), color: Colors.black87),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600])),
+      title: Text(place.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(place.addressName, style: TextStyle(color: Colors.grey[600])),
       trailing: const Icon(Icons.navigate_next, color: Colors.grey),
     );
+  }
+
+  IconData _iconForLabel(String label) {
+    switch (label.toLowerCase()) {
+      case 'home':
+        return Icons.home_rounded;
+      case 'office':
+      case 'work':
+        return Icons.work_rounded;
+      default:
+        return Icons.place_rounded;
+    }
   }
 
   Widget _buildSectionDivider() {
@@ -585,6 +733,14 @@ class _HomeTabState extends State<_HomeTab> {
         return Icons.more_horiz_rounded;
     }
   }
+}
+
+class _PopularPlace {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _PopularPlace(this.icon, this.title, this.subtitle);
 }
 
 class _RidesTab extends StatefulWidget {

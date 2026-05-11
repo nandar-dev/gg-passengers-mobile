@@ -9,7 +9,10 @@ import '../../core/session/app_session_state.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../../features/payments/domain/use_cases/get_payment_methods_use_case.dart';
+import '../../features/profile/domain/use_cases/get_passenger_profile_use_case.dart';
 import '../../shared/widgets/app_message.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../core/providers/profile_notifier.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const String _pushNotificationsKey = 'settings.push_notifications';
   static const String _tripAlertsKey = 'settings.trip_alerts';
   static const String _biometricLockKey = 'settings.biometric_lock';
+  static const String _profileNameKey = 'profile.full_name';
+  static const String _profileEmailKey = 'profile.email';
 
   bool _pushNotifications = true;
   bool _tripAlerts = true;
@@ -32,12 +37,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _paymentOptions = const ['Cash'];
   bool _isPaymentOptionsLoading = false;
   bool _isLoggingOut = false;
+  String _profileName = 'John Doe';
+  String _profileEmail = 'john@example.com';
+  String? _profileAvatarUrl;
+  bool _isProfileLoading = true;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadProfileSummary();
     _loadPaymentMethodOptions(showError: false);
+    getIt<ProfileNotifier>().addListener(_onProfileChanged);
+  }
+
+  @override
+  void dispose() {
+    getIt<ProfileNotifier>().removeListener(_onProfileChanged);
+    super.dispose();
+  }
+
+  void _onProfileChanged() {
+    if (!mounted) return;
+    final notifier = getIt<ProfileNotifier>();
+    setState(() {
+      if (notifier.name.isNotEmpty) _profileName = notifier.name;
+      if (notifier.email.isNotEmpty) _profileEmail = notifier.email;
+      _profileAvatarUrl = notifier.avatarUrl;
+    });
+  }
+
+  Future<void> _loadProfileSummary() async {
+    try {
+      final profile = await getIt<GetPassengerProfileUseCase>().call();
+      if (!mounted) return;
+
+      setState(() {
+        _profileName = profile.name.trim().isEmpty ? _profileName : profile.name.trim();
+        _profileEmail = profile.email.trim().isEmpty ? _profileEmail : profile.email.trim();
+        _profileAvatarUrl = profile.avatarUrl;
+        _isProfileLoading = false;
+      });
+
+      getIt<ProfileNotifier>().update(
+        name: _profileName,
+        email: _profileEmail,
+        avatarUrl: profile.avatarUrl,
+      );
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_profileNameKey, _profileName);
+      await prefs.setString(_profileEmailKey, _profileEmail);
+    } catch (_) {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? cachedName = prefs.getString(_profileNameKey);
+      final String? cachedEmail = prefs.getString(_profileEmailKey);
+
+      if (!mounted) return;
+
+      setState(() {
+        if (cachedName != null && cachedName.trim().isNotEmpty) {
+          _profileName = cachedName.trim();
+        }
+        if (cachedEmail != null && cachedEmail.trim().isNotEmpty) {
+          _profileEmail = cachedEmail.trim();
+        }
+        _isProfileLoading = false;
+      });
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -275,27 +342,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Row(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 24,
-                  backgroundColor: Color(0xFFFFE3BF),
-                  child: Icon(
-                    Icons.person_rounded,
-                    color: brand,
-                    size: 28,
-                  ),
+                  backgroundColor: const Color(0xFFFFE3BF),
+                  child: _profileAvatarUrl != null && _profileAvatarUrl!.isNotEmpty
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: _profileAvatarUrl!,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => const Icon(
+                              Icons.person_rounded,
+                              color: brand,
+                              size: 28,
+                            ),
+                            errorWidget: (_, __, ___) => const Icon(
+                              Icons.person_rounded,
+                              color: brand,
+                              size: 28,
+                            ),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.person_rounded,
+                          color: brand,
+                          size: 28,
+                        ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'John Doe',
-                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _profileName,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (_isProfileLoading)
+                            const SizedBox(
+                              height: 14,
+                              width: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                        ],
                       ),
                       SizedBox(height: 3),
                       Text(
-                        'john@example.com',
+                        _profileEmail,
                         style: TextStyle(color: Color(0xFF5F6368)),
                       ),
                       SizedBox(height: 6),
@@ -335,25 +436,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const _SectionLabel('Preferences'),
+          const _SectionLabel('Account'),
           _SettingsCard(
             child: Column(
               children: [
                 _SettingsTile(
-                  icon: Icons.language_rounded,
-                  title: 'Language',
-                  subtitle: 'Choose app language',
-                  valueLabel: _selectedLanguage,
-                  onTap: () {
-                    _hapticTap();
-                    _showSelectionSheet(
-                      title: 'Language',
-                      icon: Icons.language_rounded,
-                      options: const ['English', 'Hindi', 'Tamil', 'Malayalam'],
-                      selected: _selectedLanguage,
-                      onSelected: (value) => _selectedLanguage = value,
-                    );
-                  },
+                  icon: Icons.person_rounded,
+                  title: 'Profile',
+                  subtitle: 'Update name and contact info',
+                  onTap: () => context.push(RouteNames.profileEdit),
+                ),
+                const Divider(height: 1, color: Color(0xFFE8EAED)),
+                _SettingsTile(
+                  icon: Icons.place_rounded,
+                  title: 'Saved Places',
+                  subtitle: 'Add home, work, and favorites',
+                  onTap: () => context.push(RouteNames.savedPlaces),
                 ),
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
                 _SettingsTile(
@@ -381,6 +479,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const Divider(height: 1, color: Color(0xFFE8EAED)),
+                _SettingsTile(
+                  icon: Icons.language_rounded,
+                  title: 'Language',
+                  subtitle: 'Choose app language',
+                  valueLabel: _selectedLanguage,
+                  onTap: () {
+                    _hapticTap();
+                    _showSelectionSheet(
+                      title: 'Language',
+                      icon: Icons.language_rounded,
+                      options: const ['English', 'Hindi', 'Tamil', 'Malayalam'],
+                      selected: _selectedLanguage,
+                      onSelected: (value) => _selectedLanguage = value,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const _SectionLabel('Security & Alerts'),
+          _SettingsCard(
+            child: Column(
+              children: [
                 _ToggleSettingsTile(
                   icon: Icons.fingerprint_rounded,
                   title: 'Biometric Lock',
@@ -392,14 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveBoolSetting(_biometricLockKey, value);
                   },
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          const _SectionLabel('Notifications'),
-          _SettingsCard(
-            child: Column(
-              children: [
+                const Divider(height: 1, color: Color(0xFFE8EAED)),
                 _ToggleSettingsTile(
                   icon: Icons.notifications_active_outlined,
                   title: 'Push Notifications',
@@ -427,7 +542,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          const _SectionLabel('More'),
+          const _SectionLabel('Support'),
           _SettingsCard(
             child: Column(
               children: [
@@ -455,7 +570,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          const _SectionLabel('Account'),
+          const _SectionLabel('Account Actions'),
           _SettingsCard(
             accentColor: const Color(0xFFFFF4F4),
             accentBorderColor: const Color(0xFFFFD6D6),

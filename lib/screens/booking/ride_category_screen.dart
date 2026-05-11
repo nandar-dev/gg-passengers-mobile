@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import '../../features/payments/domain/entities/payment_method.dart';
 import '../../features/payments/domain/use_cases/get_payment_methods_use_case.dart';
 import '../../features/payments/presentation/payment_method_image_widget.dart';
 import '../../shared/widgets/app_message.dart';
+import '../../shared/widgets/skeleton.dart';
 
 class RideCategoryScreen extends StatefulWidget {
   const RideCategoryScreen({super.key, this.args});
@@ -41,6 +43,11 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
   late BookingStop _pickupStop;
   BookingStop? _waypointStop;
   late BookingStop _dropoffStop;
+  final Dio _dio = Dio();
+  final MapController _mapController = MapController();
+  List<LatLng> _routePolyline = const [];
+  bool _isRouteLoading = false;
+  String? _routeError;
 
   final List<Map<String, dynamic>> _categories = const [
     {
@@ -72,6 +79,7 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
     _initializeStops();
     _loadPaymentMethods();
     _loadEstimate();
+    _loadRoutePolyline();
   }
 
   void _initializeStops() {
@@ -263,6 +271,68 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
         _estimateError = 'Unable to load fare estimates right now.';
       });
     }
+  }
+
+  Future<void> _loadRoutePolyline() async {
+    if (mounted) {
+      setState(() {
+        _isRouteLoading = true;
+        _routeError = null;
+      });
+    }
+
+    try {
+      final coords = _routeStops.map((stop) => '${stop.lng},${stop.lat}').join(';');
+      final response = await _dio.get(
+        'https://router.project-osrm.org/route/v1/driving/$coords',
+        queryParameters: const {
+          'overview': 'full',
+          'geometries': 'geojson',
+        },
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final routes = data['routes'] as List<dynamic>?;
+      if (routes == null || routes.isEmpty) {
+        throw StateError('No routes available');
+      }
+
+      final geometry = routes.first['geometry'] as Map<String, dynamic>;
+      final coordinates = geometry['coordinates'] as List<dynamic>;
+      final points = coordinates
+          .map((point) => LatLng(
+                (point[1] as num).toDouble(),
+                (point[0] as num).toDouble(),
+              ))
+          .toList(growable: false);
+
+      if (!mounted) return;
+      setState(() {
+        _routePolyline = points;
+        _isRouteLoading = false;
+      });
+      _fitMapToRoute(points);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _routePolyline = _routePoints();
+        _isRouteLoading = false;
+        _routeError = 'Unable to load route path.';
+      });
+      _fitMapToRoute(_routePolyline);
+    }
+  }
+
+  void _fitMapToRoute(List<LatLng> points) {
+    if (points.length < 2) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.all(48),
+        ),
+      );
+    });
   }
 
   void _showPaymentMethods(BuildContext context) {
@@ -545,12 +615,15 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
     final int etaMinutes = estimate == null
         ? 0
         : (estimate.durationSeconds / 60).round();
+    final List<LatLng> renderRoute =
+      _routePolyline.isNotEmpty ? _routePolyline : _routePoints();
     
     return Scaffold(
       body: Stack(
         children: [
           // 1. Map Background with Route
           FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: _mapCenter,
               initialZoom: 14.5,
@@ -562,9 +635,15 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
               ),
               PolylineLayer(
                 polylines: [
+                  if (renderRoute.length > 1)
+                    Polyline(
+                      points: renderRoute,
+                      strokeWidth: 7,
+                      color: const Color(0xFF1E1E1E),
+                    ),
                   Polyline(
-                    points: _routePoints(),
-                    strokeWidth: 4.5,
+                    points: renderRoute,
+                    strokeWidth: 4.8,
                     color: AppTheme.primaryColor,
                   ),
                 ],
@@ -583,6 +662,36 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
               ),
             ],
           ),
+
+          if (_isRouteLoading)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 12,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black12, blurRadius: 8),
+                  ],
+                ),
+                child: Row(
+                  children: const [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Loading route',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           
           // 2. Map Floating Back Button
           Positioned(
@@ -666,11 +775,34 @@ class _RideCategoryScreenState extends State<RideCategoryScreen> {
                                 style: const TextStyle(color: Colors.redAccent),
                               ),
                             ),
+                          if (_routeError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                _routeError!,
+                                style: const TextStyle(color: Colors.black54),
+                              ),
+                            ),
+                          if (_routeError != null)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: _loadRoutePolyline,
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Retry route'),
+                              ),
+                            ),
                           if (_isEstimateLoading)
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
-                              child: Center(
-                                child: CircularProgressIndicator(),
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Skeletonizer(
+                                child: Column(
+                                  children: [
+                                    SkeletonRideOptionCard(),
+                                    SkeletonRideOptionCard(),
+                                    SkeletonRideOptionCard(),
+                                  ],
+                                ),
                               ),
                             )
                           else if (_estimateError != null)

@@ -1,11 +1,22 @@
+import 'dart:io';
+
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/di/service_locator.dart';
+import '../../core/network/api_exception.dart';
+import '../../core/providers/profile_notifier.dart';
 import '../../core/routing/route_names.dart';
+import '../../features/profile/domain/use_cases/get_passenger_profile_use_case.dart';
+import '../../features/profile/domain/use_cases/update_passenger_profile_use_case.dart';
 import '../../shared/widgets/app_message.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/primary_text_field.dart';
+import '../../shared/widgets/skeleton.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -27,6 +38,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String? _emailError;
   String? _phoneError;
   bool _isSaving = false;
+  bool _isLoadingProfile = true;
+
+  String? _avatarUrl;      // existing remote avatar
+  File? _pickedImage;      // locally chosen file (not yet uploaded)
+
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -40,6 +57,78 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? file = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 800,
+        maxHeight: 800,
+      );
+      if (file == null) return;
+      if (!mounted) return;
+      setState(() => _pickedImage = File(file.path));
+    } catch (e) {
+      if (!mounted) return;
+      AppMessage.error(context, 'Could not pick image. Please try again.');
+    }
+  }
+
+  void _showImageSourceSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded, color: Color(0xFFFE8C00)),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: Color(0xFFFE8C00)),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            if (_pickedImage != null || (_avatarUrl != null && _avatarUrl!.isNotEmpty))
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                title: const Text('Remove photo', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  setState(() {
+                    _pickedImage = null;
+                    _avatarUrl = null;
+                  });
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _validate() {
@@ -80,12 +169,43 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     setState(() => _isSaving = true);
 
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_profileNameKey, _nameController.text.trim());
-    await prefs.setString(_profileEmailKey, _emailController.text.trim());
-    await prefs.setString(_profilePhoneKey, _phoneController.text.trim());
+    try {
+      final profile = await getIt<UpdatePassengerProfileUseCase>().call(
+        fullName: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        avatarFilePath: _pickedImage?.path,
+      );
+      if (profile.avatarUrl != null && mounted) {
+        setState(() {
+          _avatarUrl = profile.avatarUrl;
+          _pickedImage = null;
+        });
+      }
 
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+      getIt<ProfileNotifier>().update(
+        name: profile.name.trim(),
+        email: profile.email.trim(),
+        avatarUrl: profile.avatarUrl,
+      );
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_profileNameKey, profile.name.trim());
+      await prefs.setString(_profileEmailKey, profile.email.trim());
+      await prefs.setString(_profilePhoneKey, profile.phone.trim());
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Profile update failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      final String message = error is ApiException
+          ? error.message
+          : 'Unable to update profile. Please check your connection and try again.';
+      AppMessage.error(context, message);
+      return;
+    }
 
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -99,22 +219,79 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String? name = prefs.getString(_profileNameKey);
-    final String? email = prefs.getString(_profileEmailKey);
-    final String? phone = prefs.getString(_profilePhoneKey);
+    try {
+      final profile = await getIt<GetPassengerProfileUseCase>().call();
+      if (!mounted) return;
+      _nameController.text = profile.name.trim().isEmpty ? '' : profile.name.trim();
+      _emailController.text = profile.email.trim().isEmpty ? '' : profile.email.trim();
+      _phoneController.text = profile.phone.trim().isEmpty ? '' : profile.phone.trim();
+      _avatarUrl = profile.avatarUrl;
+
+      getIt<ProfileNotifier>().update(
+        name: profile.name.trim(),
+        email: profile.email.trim(),
+        avatarUrl: profile.avatarUrl,
+      );
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_profileNameKey, profile.name.trim());
+      await prefs.setString(_profileEmailKey, profile.email.trim());
+      await prefs.setString(_profilePhoneKey, profile.phone.trim());
+    } catch (_) {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? name = prefs.getString(_profileNameKey);
+      final String? email = prefs.getString(_profileEmailKey);
+      final String? phone = prefs.getString(_profilePhoneKey);
+
+      if (!mounted) return;
+
+      if (name != null && name.trim().isNotEmpty) {
+        _nameController.text = name;
+      }
+      if (email != null && email.trim().isNotEmpty) {
+        _emailController.text = email;
+      }
+      if (phone != null && phone.trim().isNotEmpty) {
+        _phoneController.text = phone;
+      }
+    }
 
     if (!mounted) return;
+    setState(() => _isLoadingProfile = false);
+  }
 
-    if (name != null && name.trim().isNotEmpty) {
-      _nameController.text = name;
+  Widget _buildAvatar() {
+    if (_pickedImage != null) {
+      return CircleAvatar(
+        radius: 42,
+        backgroundImage: FileImage(_pickedImage!),
+      );
     }
-    if (email != null && email.trim().isNotEmpty) {
-      _emailController.text = email;
+    if (_avatarUrl != null && _avatarUrl!.trim().isNotEmpty) {
+      return CircleAvatar(
+        radius: 42,
+        backgroundColor: const Color(0xFFFFE3BF),
+        child: ClipOval(
+          child: CachedNetworkImage(
+            imageUrl: _avatarUrl!,
+            width: 84,
+            height: 84,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => const CircularProgressIndicator(strokeWidth: 2),
+            errorWidget: (_, __, ___) => const Icon(
+              Icons.person_rounded,
+              size: 46,
+              color: Color(0xFFFE8C00),
+            ),
+          ),
+        ),
+      );
     }
-    if (phone != null && phone.trim().isNotEmpty) {
-      _phoneController.text = phone;
-    }
+    return const CircleAvatar(
+      radius: 42,
+      backgroundColor: Color(0xFFFFE3BF),
+      child: Icon(Icons.person_rounded, size: 46, color: Color(0xFFFE8C00)),
+    );
   }
 
   @override
@@ -134,24 +311,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         title: const Text('Edit Profile'),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: _isLoadingProfile
+              ? const _ProfileEditSkeleton(key: ValueKey('profile-edit-skeleton'))
+              : SingleChildScrollView(
+                  key: const ValueKey('profile-edit-content'),
+                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
               Center(
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    const CircleAvatar(
-                      radius: 42,
-                      backgroundColor: Color(0xFFFFE3BF),
-                      child: Icon(
-                        Icons.person_rounded,
-                        size: 46,
-                        color: Color(0xFFFE8C00),
-                      ),
-                    ),
+                    _buildAvatar(),
                     Positioned(
                       right: -4,
                       bottom: -4,
@@ -160,7 +336,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         shape: const CircleBorder(),
                         child: InkWell(
                           customBorder: const CircleBorder(),
-                          onTap: () => AppMessage.info(context, 'Photo update will be available soon'),
+                          onTap: _isSaving ? null : _showImageSourceSheet,
                           child: const Padding(
                             padding: EdgeInsets.all(8),
                             child: Icon(Icons.camera_alt_rounded, color: Colors.white, size: 18),
@@ -177,7 +353,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 hint: 'John Doe',
                 controller: _nameController,
                 errorText: _nameError,
-                enabled: !_isSaving,
+                enabled: !_isSaving && !_isLoadingProfile,
                 textInputAction: TextInputAction.next,
                 onChanged: (_) {
                   if (_nameError != null) {
@@ -192,7 +368,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 keyboardType: TextInputType.emailAddress,
                 controller: _emailController,
                 errorText: _emailError,
-                enabled: !_isSaving,
+                enabled: !_isSaving && !_isLoadingProfile,
                 textInputAction: TextInputAction.next,
                 onChanged: (_) {
                   if (_emailError != null) {
@@ -207,7 +383,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 keyboardType: TextInputType.phone,
                 controller: _phoneController,
                 errorText: _phoneError,
-                enabled: !_isSaving,
+                enabled: !_isSaving && !_isLoadingProfile,
                 textInputAction: TextInputAction.done,
                 onChanged: (_) {
                   if (_phoneError != null) {
@@ -218,11 +394,45 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               const SizedBox(height: 24),
               PrimaryButton(
                 label: 'Save Changes',
-                isLoading: _isSaving,
-                onPressed: _isSaving ? null : _saveProfile,
+                isLoading: _isSaving || _isLoadingProfile,
+                onPressed: _isSaving || _isLoadingProfile ? null : _saveProfile,
               ),
             ],
           ),
+        ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileEditSkeleton extends StatelessWidget {
+  const _ProfileEditSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Skeletonizer(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Center(child: SkeletonAvatar(size: 84)),
+            SizedBox(height: 28),
+            SkeletonText(width: 80, height: 12),
+            SizedBox(height: 8),
+            SkeletonBox(height: 48, borderRadius: BorderRadius.all(Radius.circular(12))),
+            SizedBox(height: 18),
+            SkeletonText(width: 60, height: 12),
+            SizedBox(height: 8),
+            SkeletonBox(height: 48, borderRadius: BorderRadius.all(Radius.circular(12))),
+            SizedBox(height: 18),
+            SkeletonText(width: 110, height: 12),
+            SizedBox(height: 8),
+            SkeletonBox(height: 48, borderRadius: BorderRadius.all(Radius.circular(12))),
+            SizedBox(height: 28),
+            SkeletonBox(height: 52, borderRadius: BorderRadius.all(Radius.circular(14))),
+          ],
         ),
       ),
     );
