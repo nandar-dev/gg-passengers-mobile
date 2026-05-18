@@ -1,27 +1,28 @@
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session_state.dart';
-import '../../screens/auth/forgot_password_screen.dart';
-import '../../screens/auth/login_screen.dart';
-import '../../screens/auth/otp_verification_screen.dart';
-import '../../screens/auth/reset_password_screen.dart';
-import '../../screens/auth/signup_screen.dart';
-import '../../screens/auth/verify_reset_otp_screen.dart';
-import '../../screens/booking/ride_category_screen.dart';
-import '../../screens/booking/search_location_screen.dart';
-import '../../screens/home/home_screen.dart';
-import '../../screens/onboarding/onboarding_screen.dart';
-import '../../screens/payments/payments_screen.dart';
-import '../../screens/profile/about_screen.dart';
-import '../../screens/profile/profile_edit_screen.dart';
-import '../../screens/profile/profile_screen.dart';
-import '../../screens/profile/promotions_screen.dart';
-import '../../screens/profile/settings_screen.dart';
-import '../../screens/profile/support_screen.dart';
-import '../../screens/ride/ride_history_screen.dart';
-import '../../screens/ride/ride_review_screen.dart';
-import '../../screens/ride/ride_tracking_screen.dart';
-import '../../screens/splash_screen.dart';
+import '../../features/auth/presentation/screens/forgot_password_screen.dart';
+import '../../features/auth/presentation/screens/login_screen.dart';
+import '../../features/auth/presentation/screens/otp_verification_screen.dart';
+import '../../features/auth/presentation/screens/reset_password_screen.dart';
+import '../../features/auth/presentation/screens/signup_screen.dart';
+import '../../features/auth/presentation/screens/verify_reset_otp_screen.dart';
+import '../../features/booking/presentation/screens/ride_category_screen.dart';
+import '../../features/booking/presentation/screens/search_location_screen.dart';
+import '../../features/home/presentation/screens/home_screen.dart';
+import '../../features/onboarding/presentation/screens/onboarding_screen.dart';
+import '../../features/payments/presentation/screens/payments_screen.dart';
+import '../../features/profile/presentation/screens/about_screen.dart';
+import '../../features/profile/presentation/screens/profile_edit_screen.dart';
+import '../../features/profile/presentation/screens/profile_screen.dart';
+import '../../features/profile/presentation/screens/promotions_screen.dart';
+import '../../features/profile/presentation/screens/settings_screen.dart';
+import '../../features/profile/presentation/screens/support_screen.dart';
+import '../../features/ride/presentation/screens/ride_history_screen.dart';
+import '../../features/ride/presentation/screens/ride_review_screen.dart';
+import '../../features/ride/presentation/screens/ride_tracking_screen.dart';
+import '../../features/ride/presentation/models/ride_tracking_args.dart';
+import '../../features/onboarding/presentation/screens/splash_screen.dart';
 import '../../features/saved_places/presentation/screens/saved_places_screen.dart';
 import '../../features/booking/presentation/models/booking_args.dart';
 import 'route_names.dart';
@@ -182,14 +183,28 @@ final goRouter = GoRouter(
           path: 'ride-tracking',
           name: 'rideTracking',
           builder: (context, state) {
-            return const RideTrackingScreen();
+            RideTrackingArgs? args;
+
+            final extra = state.extra;
+            if (extra is RideTrackingArgs) {
+              args = extra;
+            }
+
+            return RideTrackingScreen(args: args);
           },
         ),
         GoRoute(
           path: 'ride-review',
           name: 'rideReview',
           builder: (context, state) {
-            return const RideReviewScreen();
+            String? bookingId;
+
+            final extra = state.extra;
+            if (extra is String && extra.trim().isNotEmpty) {
+              bookingId = extra;
+            }
+
+            return RideReviewScreen(bookingId: bookingId);
           },
         ),
       ],

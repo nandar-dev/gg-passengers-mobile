@@ -11,22 +11,6 @@
 - **Design System**: Custom Theme. **Primary Color: #FE8C00** (Vibrant Orange).
 - **Strategy**: Mock-first implementation for all Data layers for rapid iteration.
 
-## 🏗️ Enforcement: Clean Architecture (Feature-First)
-Always organize code by feature. Each feature folder must strictly contain:
-
-lib/features/feature_name/
-├── domain/            # Business Logic (No Flutter dependencies)
-│   ├── entities/      # Plain Dart objects
-│   ├── repositories/  # Abstract repository interfaces
-│   └── use_cases/     # Logic executors (one class per action)
-├── data/              # Data Implementation
-│   ├── models/        # Data Transfer Objects (DTOs) + JSON mapping
-│   ├── repositories/  # Implementation of domain repositories
-│   └── data_sources/  # Remote (Dio) and Local (Hive/Prefs) sources
-└── presentation/      # UI Layer
-    ├── providers/     # Riverpod providers/notifiers
-    ├── screens/       # Full-page widgets
-    └── widgets/       # Feature-specific reusable components
 
 ## 🛠️ Technical Stack & Conventions
 - **State**: Use `AsyncValue` for all data-fetching states.
